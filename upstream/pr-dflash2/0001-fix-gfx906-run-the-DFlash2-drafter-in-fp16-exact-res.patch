@@ -1,0 +1,301 @@
+From 253f051bc325bfc283fbcb1ef4e89cc70e94de68 Mon Sep 17 00:00:00 2001
+From: Sami <247917809+0c33@users.noreply.github.com>
+Date: Fri, 9 Oct 2026 04:33:55 +0000
+Subject: [PATCH 1/3] fix(gfx906): run the DFlash2 drafter in fp16 (exact
+ residual-stream rescale)
+
+The bf16-trained DFlash2 drafter (incoai/Qwen3.8-27B-DFlash2, mirrored as
+z-lab/Qwen3.8-27B-DFlash2) overflows fp16: its residual stream passes 65504
+within two layers, turns into inf/NaN, every candidate id becomes 0..top_k-1
+and acceptance is exactly zero (vllm-project/vllm#55250). gfx906 has no bf16,
+so every DFlash2 run on this fork was in fp16 -- the cause of the "dead for
+this family" verdict in docs/gfx906/DEVLOG-dflash2.md.
+
+Every branch reads the residual stream through an RMSNorm, the final norm
+feeds the candidates and the selector, and the grouped conv's finish is
+linear in the branch output, so scaling o_proj, the up half of gate_up_proj
+and down_proj (and the layer-0 residual) by a power of two shrinks the whole
+stream without changing anything the draft computes. Applied at load time
+for fp16 drafts only; VLLM_DFLASH2_FP16_RESIDUAL_DIVISOR=1 turns it off.
+
+Tests: exactness in fp32, and an fp16 draft whose stream overflows plain
+fp16 stays finite and matches fp32 after the rescale.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Sami <247917809+0c33@users.noreply.github.com>
+---
+ tests/v1/spec_decode/test_dflash2.py        | 157 ++++++++++++++++++++
+ vllm/model_executor/models/qwen3_dflash2.py |  50 +++++++
+ 2 files changed, 207 insertions(+)
+
+diff --git a/tests/v1/spec_decode/test_dflash2.py b/tests/v1/spec_decode/test_dflash2.py
+index e7ff2b6..88acdbe 100644
+--- a/tests/v1/spec_decode/test_dflash2.py
++++ b/tests/v1/spec_decode/test_dflash2.py
+@@ -232,3 +232,160 @@ def test_dflash2_model_decoder_layer_cls(monkeypatch):
+     # 4. Assert that the layers are DFlash2Qwen3DecoderLayer (the subclass)
+     assert len(model.layers) == 2
+     assert isinstance(model.layers[0], DFlash2Qwen3DecoderLayer)
++
++
++def _tiny_dflash2_model(monkeypatch, out_gain: float):
++    """A real DFlash2Qwen3Model on the GPU whose attention core is stubbed out.
++
++    The stub keeps each layer's o_proj (what rescale_residual_stream scales) and
++    replaces the attention kernel with a fixed mixing matrix, so the real
++    residual / norm / grouped-conv / MLP code runs without attention metadata.
++    `out_gain` scales o_proj and down_proj; this toy's residual peaks at ~108x
++    out_gain, and the bf16-trained checkpoint's passes fp16's max (65504) by
++    its second layer. Small gains are not realistic: with an O(1) stream the
++    RMSNorm eps stops being negligible once the stream is divided by 32.
++    """
++    from vllm.config import set_current_vllm_config
++    from vllm.model_executor.models.qwen3_dflash2 import DFlash2Qwen3Model
++    from vllm.platforms import current_platform
++
++    dev = torch.device("cuda")
++    hidden, block = 256, 5
++    current = SimpleNamespace(
++        cache_config=SimpleNamespace(
++            block_size=16,
++            user_specified_block_size=False,
++            kv_cache_dtype_skip_layers=[],
++            cache_dtype="auto",
++            sliding_window=None,
++            enable_prefix_caching=False,
++        ),
++        kv_transfer_config=None,
++        speculative_config=None,
++        attention_config=SimpleNamespace(
++            use_non_causal=False, backend=None, backend_per_kind={}
++        ),
++        parallel_config=SimpleNamespace(
++            prefill_context_parallel_size=1, decode_context_parallel_size=1
++        ),
++        compilation_config=SimpleNamespace(
++            compile_custom_ops=False,
++            custom_ops="all",
++            enabled_custom_ops=set(),
++            static_forward_context={},
++            mode=0,
++        ),
++        model_config=SimpleNamespace(
++            dtype=torch.float32, is_mm_prefix_lm=False, rswa_window=None
++        ),
++        kernel_config=SimpleNamespace(linear_backend="auto"),
++    )
++    monkeypatch.setattr(
++        current_platform,
++        "get_attn_backend_cls",
++        lambda *args, **kwargs: (
++            "vllm.v1.attention.backends.cpu_attn.CPUAttentionBackend"
++        ),
++    )
++
++    class MockGroup:
++        rank_in_group = 0
++        world_size = 1
++
++    monkeypatch.setattr("vllm.distributed.parallel_state._TP", MockGroup())
++    hf_config = SimpleNamespace(
++        vocab_size=1000,
++        hidden_size=hidden,
++        num_hidden_layers=3,
++        num_attention_heads=8,
++        num_key_value_heads=2,
++        max_position_embeddings=2048,
++        rms_norm_eps=1e-6,
++        rope_parameters={},
++        intermediate_size=512,
++        hidden_act="silu",
++        dflash_config={
++            "selector_rank": 4,
++            "selector_top_k": 3,
++            "conv_kernel_size": 2,
++            "conv_group_size": 16,
++            "use_aux_hidden_state": False,
++        },
++    )
++    vllm_config = SimpleNamespace(
++        speculative_config=SimpleNamespace(
++            draft_model_config=SimpleNamespace(hf_config=hf_config, quantization=None),
++            num_speculative_tokens=block - 1,
++            enable_adaptive_verification=False,
++        ),
++        model_config=SimpleNamespace(dtype=torch.float32, is_mm_prefix_lm=False),
++        load_config=SimpleNamespace(quantization=None, quantization_param_path=None),
++    )
++    current.speculative_config = vllm_config.speculative_config
++    vllm_config.compilation_config = current.compilation_config
++    with set_current_vllm_config(current), torch.device(dev):
++        model = DFlash2Qwen3Model(vllm_config=vllm_config)
++
++    gen = torch.Generator(device=dev).manual_seed(7)
++
++    class StubAttention(torch.nn.Module):
++        def __init__(self, o_proj):
++            super().__init__()
++            self.o_proj = o_proj
++            self.register_buffer(
++                "mix",
++                torch.randn(hidden, hidden, generator=gen, device=dev) / hidden**0.5,
++            )
++
++        def forward(self, positions, hidden_states):
++            out, _ = self.o_proj(hidden_states @ self.mix)
++            return out
++
++    with torch.no_grad():
++        for name, param in model.named_parameters():
++            if name.endswith("norm.weight") or "layernorm" in name:
++                param.copy_(1 + 0.1 * torch.randn(param.shape, generator=gen, device=dev))
++            elif "base_kernel" in name:
++                param.copy_(1 + torch.rand(param.shape, generator=gen, device=dev))
++            else:
++                param.copy_(0.05 * torch.randn(param.shape, generator=gen, device=dev))
++        for layer in model.layers:
++            layer.self_attn.o_proj.weight.mul_(out_gain)
++            layer.mlp.down_proj.weight.mul_(out_gain)
++            layer.self_attn = StubAttention(layer.self_attn.o_proj)
++    # 4 draft blocks of `block` tokens (> 16 rows keeps the fp32 GEMMs in fp32).
++    ids = torch.randint(0, hf_config.vocab_size, (4 * block,), generator=gen, device=dev)
++    positions = torch.arange(4 * block, device=dev)
++    return model, ids, positions
++
++
++@pytest.mark.skip_global_cleanup
++def test_dflash2_residual_rescale_is_exact(monkeypatch):
++    """Scaling the residual stream by a power of two changes nothing downstream."""
++    from vllm.model_executor.models.qwen3_dflash2 import rescale_residual_stream
++
++    model, ids, positions = _tiny_dflash2_model(monkeypatch, out_gain=200.0)
++    with torch.no_grad():
++        ref = model(ids, positions)
++        rescale_residual_stream(model, 32.0)
++        got = model(ids, positions)
++    torch.testing.assert_close(got, ref, rtol=1e-4, atol=1e-5)
++
++
++@pytest.mark.skip_global_cleanup
++def test_dflash2_residual_rescale_keeps_fp16_finite(monkeypatch):
++    """vllm#55250: the fp16 draft overflows to inf/NaN; rescaled it matches fp32."""
++    from vllm.model_executor.models.qwen3_dflash2 import rescale_residual_stream
++
++    model, ids, positions = _tiny_dflash2_model(monkeypatch, out_gain=2000.0)
++    with torch.no_grad():
++        ref = model(ids, positions)
++        model.half()
++        assert not torch.isfinite(model(ids, positions)).all(), (
++            "precondition: this residual stream must overflow plain fp16"
++        )
++        rescale_residual_stream(model, 32.0)
++        got = model(ids, positions).float()
++    assert torch.isfinite(got).all()
++    rel = ((got - ref).norm() / ref.norm()).item()
++    assert rel < 2e-2, f"rescaled fp16 draft vs fp32: rel {rel:.4f}"
+diff --git a/vllm/model_executor/models/qwen3_dflash2.py b/vllm/model_executor/models/qwen3_dflash2.py
+index cb02729..b5f9942 100644
+--- a/vllm/model_executor/models/qwen3_dflash2.py
++++ b/vllm/model_executor/models/qwen3_dflash2.py
+@@ -1,6 +1,9 @@
+ # SPDX-License-Identifier: Apache-2.0
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ 
++import os
++from collections.abc import Iterable
++
+ import torch
+ import torch.nn.functional as F
+ from torch import nn
+@@ -8,6 +11,7 @@ from torch import nn
+ from vllm.compilation.backends import set_model_tag
+ from vllm.compilation.decorators import support_torch_compile
+ from vllm.config import CacheConfig, VllmConfig
++from vllm.logger import init_logger
+ from vllm.model_executor.layers.linear import ReplicatedLinear
+ from vllm.model_executor.layers.logits_processor import LogitsProcessor
+ from vllm.model_executor.layers.quantization.base_config import QuantizationConfig
+@@ -19,6 +23,8 @@ from .qwen3_dflash import (
+ )
+ from .utils import maybe_prefix
+ 
++logger = init_logger(__name__)
++
+ 
+ def _grouped_conv(
+     hidden_states: torch.Tensor,
+@@ -137,6 +143,8 @@ class DFlash2Qwen3DecoderLayer(DFlashQwen3DecoderLayer):
+         self.mlp_conv = DFlashGroupedConv(
+             **conv_args, prefix=maybe_prefix(prefix, "mlp_conv")
+         )
++        # Set by rescale_residual_stream; scales the layer-0 residual.
++        self.residual_scale = 1.0
+ 
+     def forward(
+         self,
+@@ -147,6 +155,8 @@ class DFlash2Qwen3DecoderLayer(DFlashQwen3DecoderLayer):
+         if residual is None:
+             residual = hidden_states
+             hidden_states = self.input_layernorm(hidden_states)
++            if self.residual_scale != 1.0:
++                residual = residual * self.residual_scale
+         else:
+             hidden_states, residual = self.input_layernorm(hidden_states, residual)
+ 
+@@ -161,6 +171,33 @@ class DFlash2Qwen3DecoderLayer(DFlashQwen3DecoderLayer):
+         return hidden_states, residual
+ 
+ 
++@torch.no_grad()
++def rescale_residual_stream(model: "DFlash2Qwen3Model", divisor: float) -> None:
++    """Shrink the draft's residual stream by `divisor` without changing its output.
++
++    The bf16-trained DFlash2 draft's residual stream passes fp16's max (65504)
++    within two layers; cast to fp16, it turns into inf/NaN, every candidate id
++    becomes 0..top_k-1 and acceptance is exactly zero (vllm-project/vllm#55250).
++    Every branch reads the stream through an RMSNorm, the final norm feeds the
++    candidates and the selector, and the grouped conv's `finish` is linear in
++    the branch output (its coefficients come from the normed input), so scaling
++    each branch's output projection -- and the layer-0 residual -- by one
++    constant leaves everything the draft computes unchanged. Part of the scale
++    goes on the up half of gate_up_proj so the MLP's intermediate product
++    cannot overflow either. Powers of two keep the weight scaling exact.
++    """
++    up_divisor = min(divisor, 8.0)
++    for layer in model.layers:
++        o_proj = layer.self_attn.o_proj
++        o_proj.weight.mul_(1.0 / divisor)
++        if getattr(o_proj, "bias", None) is not None:
++            o_proj.bias.mul_(1.0 / divisor)
++        gate_up = layer.mlp.gate_up_proj.weight
++        gate_up[gate_up.shape[0] // 2 :].mul_(1.0 / up_divisor)
++        layer.mlp.down_proj.weight.mul_(up_divisor / divisor)
++        layer.residual_scale = 1.0 / divisor
++
++
+ def _score_edges(
+     predecessor_table: torch.Tensor,
+     successor_table: torch.Tensor,
+@@ -279,6 +316,19 @@ class DFlash2Qwen3ForCausalLM(DFlashQwen3ForCausalLM):
+             soft_cap=softcap if softcap > 0 else None,
+         )
+ 
++    def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]):
++        loaded = super().load_weights(weights)
++        # fp16 drafts only (gfx906 has no bf16; fp16 targets cast the draft
++        # too). VLLM_DFLASH2_FP16_RESIDUAL_DIVISOR=1 restores the old behaviour.
++        divisor = float(os.environ.get("VLLM_DFLASH2_FP16_RESIDUAL_DIVISOR", "32"))
++        o_proj = self.model.layers[0].self_attn.o_proj
++        if o_proj.weight.dtype == torch.float16 and divisor != 1.0:
++            rescale_residual_stream(self.model, divisor)
++            logger.info(
++                "DFlash2 draft in float16: residual stream scaled by 1/%g", divisor
++            )
++        return loaded
++
+     def compute_candidates(
+         self, hidden_states: torch.Tensor
+     ) -> tuple[torch.Tensor, torch.Tensor]:
+-- 
+2.47.3
+

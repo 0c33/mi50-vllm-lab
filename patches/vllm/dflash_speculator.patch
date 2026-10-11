@@ -1,0 +1,57 @@
+--- a/vllm/v1/worker/gpu/spec_decode/dflash/speculator.py
++++ b/vllm/v1/worker/gpu/spec_decode/dflash/speculator.py
+@@ -6,6 +6,8 @@
+ import torch
+ import torch.nn as nn
+ 
++from vllm.v1.worker.gpu import gfx906_steptimer as _st
++
+ from vllm.config import VllmConfig, replace
+ from vllm.config.compilation import CUDAGraphMode
+ from vllm.forward_context import BatchDescriptor, set_forward_context
+@@ -420,11 +422,12 @@
+             ]
+         else:
+             context_slots = self._context_slot_mappings[0][:num_target_tokens]
+-        self.model.precompute_and_store_context_kv(
+-            self.hidden_states[:num_target_tokens],
+-            self.context_positions[:num_target_tokens],
+-            context_slots,
+-        )
++        with _st.TIMER.region("ctx_kv"):
++            self.model.precompute_and_store_context_kv(
++                self.hidden_states[:num_target_tokens],
++                self.context_positions[:num_target_tokens],
++                context_slots,
++            )
+ 
+         batch_sync, num_batch_tokens = (
+             self._build_uniform_batch_dp_sync(dp_sync, num_reqs, self.num_query_per_req)
+@@ -468,16 +471,18 @@
+ 
+         if batch_desc.cg_mode == CUDAGraphMode.FULL:
+             assert self.query_cudagraph_manager is not None
+-            self.query_cudagraph_manager.run_fullgraph(batch_desc)
++            with _st.TIMER.region("gen_draft"):
++                self.query_cudagraph_manager.run_fullgraph(batch_desc)
+         else:
+-            self._generate_draft(
+-                num_reqs,
+-                num_tokens_padded,
+-                draft_attn_metadata,
+-                draft_slot_mappings_by_layer,
+-                num_tokens_across_dp=num_tokens_across_dp,
+-                cudagraph_runtime_mode=batch_desc.cg_mode,
+-            )
++            with _st.TIMER.region("gen_draft"):
++                self._generate_draft(
++                    num_reqs,
++                    num_tokens_padded,
++                    draft_attn_metadata,
++                    draft_slot_mappings_by_layer,
++                    num_tokens_across_dp=num_tokens_across_dp,
++                    cudagraph_runtime_mode=batch_desc.cg_mode,
++                )
+ 
+         return self.draft_tokens[:num_reqs]
+ 

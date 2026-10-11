@@ -1,0 +1,40 @@
+--- a/vllm/distributed/device_communicators/cuda_communicator.py
++++ b/vllm/distributed/device_communicators/cuda_communicator.py
+@@ -2,6 +2,8 @@
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ 
+ 
++import os
++
+ import torch
+ from torch.distributed import ProcessGroup
+ 
+@@ -248,6 +250,18 @@
+                 scope="global",
+             )
+ 
++        self._init_gfx906_host_allreduce(unique_name)
++
++    def _init_gfx906_host_allreduce(self, unique_name: str) -> None:
++        self.gfx906_hostar = None
++        lib = os.environ.get("VLLM_GFX906_HOSTAR_LIB", "")
++        if lib and self.world_size == 2 and unique_name.split(":")[0] == "tp":
++            from .gfx906_host_allreduce import Gfx906HostAllReduce
++
++            self.gfx906_hostar = Gfx906HostAllReduce(
++                self.cpu_group, self.rank, self.ranks, lib
++            )
++
+     def _log_all_reduce_backend_selection(self) -> None:
+         """Log the all-reduce backends that are active for this group.
+ 
+@@ -325,6 +339,9 @@
+         )
+ 
+     def all_reduce(self, input_):
++        hostar = getattr(self, "gfx906_hostar", None)
++        if hostar is not None and hostar.should_use(input_):
++            return hostar.all_reduce(input_)
+         fi_ar_comm = self.fi_ar_comm
+         use_fi_ar = (
+             fi_ar_comm is not None

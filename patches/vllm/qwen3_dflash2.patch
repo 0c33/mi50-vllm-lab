@@ -1,0 +1,96 @@
+--- a/vllm/model_executor/models/qwen3_dflash2.py
++++ b/vllm/model_executor/models/qwen3_dflash2.py
+@@ -1,6 +1,9 @@
+ # SPDX-License-Identifier: Apache-2.0
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ 
++import os
++from collections.abc import Iterable
++
+ import torch
+ import torch.nn.functional as F
+ from torch import nn
+@@ -8,6 +11,7 @@
+ from vllm.compilation.backends import set_model_tag
+ from vllm.compilation.decorators import support_torch_compile
+ from vllm.config import CacheConfig, VllmConfig
++from vllm.logger import init_logger
+ from vllm.model_executor.layers.linear import ReplicatedLinear
+ from vllm.model_executor.layers.logits_processor import LogitsProcessor
+ from vllm.model_executor.layers.quantization.base_config import QuantizationConfig
+@@ -19,6 +23,8 @@
+ )
+ from .utils import maybe_prefix
+ 
++logger = init_logger(__name__)
++
+ 
+ def _grouped_conv(
+     hidden_states: torch.Tensor,
+@@ -137,6 +143,8 @@
+         self.mlp_conv = DFlashGroupedConv(
+             **conv_args, prefix=maybe_prefix(prefix, "mlp_conv")
+         )
++        # Set by DFlash2Qwen3ForCausalLM._fit_residual_stream_to_fp16.
++        self.residual_scale = 1.0
+ 
+     def forward(
+         self,
+@@ -147,6 +155,8 @@
+         if residual is None:
+             residual = hidden_states
+             hidden_states = self.input_layernorm(hidden_states)
++            if self.residual_scale != 1.0:
++                residual = residual * self.residual_scale
+         else:
+             hidden_states, residual = self.input_layernorm(hidden_states, residual)
+ 
+@@ -279,6 +289,48 @@
+             soft_cap=softcap if softcap > 0 else None,
+         )
+ 
++    def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]):
++        loaded = super().load_weights(weights)
++        self._fit_residual_stream_to_fp16()
++        return loaded
++
++    def _fit_residual_stream_to_fp16(self) -> None:
++        """Keep the bf16-trained draft's residual stream inside fp16 range.
++
++        Cast to fp16, the stream passes fp16's max (65504) within two layers;
++        the NaNs that follow make every candidate id 0..top_k-1 and acceptance
++        exactly zero (vllm-project/vllm#55250). Every branch reads the stream
++        through an RMSNorm, the final norm feeds the candidates and selector,
++        and the grouped conv's `finish` is linear in the branch output (its
++        coefficients come from the normed input), so scaling each branch's
++        output projection -- and the layer-0 residual -- shrinks the whole
++        stream by one constant without changing anything the draft computes.
++        The up half of gate_up_proj takes part of the scale so the MLP's
++        intermediate product cannot overflow either.
++        """
++        o_proj = self.model.layers[0].self_attn.o_proj
++        if o_proj.weight.dtype != torch.float16:
++            return
++        divisor = float(os.environ.get("VLLM_DFLASH2_FP16_RESIDUAL_DIVISOR", "32"))
++        if divisor == 1.0:
++            return
++        up_divisor = min(divisor, 8.0)
++        with torch.no_grad():
++            for layer in self.model.layers:
++                attn_out = layer.self_attn.o_proj
++                attn_out.weight.mul_(1.0 / divisor)
++                if getattr(attn_out, "bias", None) is not None:
++                    attn_out.bias.mul_(1.0 / divisor)
++                gate_up = layer.mlp.gate_up_proj.weight
++                gate_up[gate_up.shape[0] // 2 :].mul_(1.0 / up_divisor)
++                layer.mlp.down_proj.weight.mul_(up_divisor / divisor)
++                layer.residual_scale = 1.0 / divisor
++        logger.info(
++            "DFlash2 draft in float16: residual stream scaled by 1/%g "
++            "(VLLM_DFLASH2_FP16_RESIDUAL_DIVISOR; 1 disables)",
++            divisor,
++        )
++
+     def compute_candidates(
+         self, hidden_states: torch.Tensor
+     ) -> tuple[torch.Tensor, torch.Tensor]:

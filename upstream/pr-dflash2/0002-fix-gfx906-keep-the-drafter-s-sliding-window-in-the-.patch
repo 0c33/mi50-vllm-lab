@@ -1,0 +1,238 @@
+From a0c4262525b87309b72588dd608505151f50447f Mon Sep 17 00:00:00 2001
+From: Sami <247917809+0c33@users.noreply.github.com>
+Date: Fri, 9 Oct 2026 04:33:55 +0000
+Subject: [PATCH 2/3] fix(gfx906): keep the drafter's sliding window in the
+ non-causal FA path
+
+FA-NONCAUSAL stage 1 zeroed `window` for non-causal batches, so a DFlash2
+drafter (all layers sliding 2048, is_causal false) attended over
+[0, seq_len). The KV-cache manager frees a sliding layer's blocks once they
+fall out of the window, so beyond ~2k context the drafter read freed blocks
+and acceptance dropped to exactly 0 %: on main + the fp16 fix, 9.6 t/s at a
+4.6k-token prompt (1.00 tokens/step); with this fix 34.8 t/s (3.66), and
+3.70 / 3.85 tokens/step at 14.6k / 24.4k.
+
+Keep the window for the gather clip and express "no causal clip, left
+window only" with the kernel's existing mask: q_abs_offset = seq_len puts
+every key before the row, and widening the window by the block length lands
+the window test on each row's true position. No kernel change; the gather
+clip and k-loop start are the ones causal sliding layers already use.
+
+Test: a non-causal block over a 512-token context whose out-of-window
+blocks point at a NaN block must match the windowed reference (fails on the
+previous code with "read a freed block outside the window").
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Sami <247917809+0c33@users.noreply.github.com>
+---
+ tests/kernels/attention/test_gfx906_fa.py | 80 +++++++++++++++++++++++
+ vllm/gfx906_fa/gfx906_fa_paged.py         | 47 +++++++++++--
+ 2 files changed, 120 insertions(+), 7 deletions(-)
+
+diff --git a/tests/kernels/attention/test_gfx906_fa.py b/tests/kernels/attention/test_gfx906_fa.py
+index 6741766..8f404b8 100644
+--- a/tests/kernels/attention/test_gfx906_fa.py
++++ b/tests/kernels/attention/test_gfx906_fa.py
+@@ -3947,6 +3947,86 @@ def test_non_causal_batch_is_bidirectional_vs_torch_ref():
+     assert rel_a < 5e-2, f"non-causal row 0 with amplified future keys: rel {rel_a:.4f}"
+ 
+ 
++
++@pytest.mark.parametrize("window", [64, 200])
++def test_non_causal_sliding_window_never_reads_freed_blocks(window):
++    """A non-causal sliding-window batch (DFlash2 drafter) keeps its window.
++
++    The KV-cache manager frees a sliding layer's blocks once they fall out of
++    its window, so their block-table entries may point anywhere. Stage 1 of
++    FA-NONCAUSAL dropped the window and attended over [0, seq_len): past the
++    window the drafter read freed blocks and its drafts collapsed (0 % accepted
++    beyond ~2k context). Here every block the window-clipped gather never
++    reaches (the clip keeps GATHER_CLIP_MARGIN=128 rows before the window)
++    points at a NaN block; each row must match the windowed reference: keys
++    within `window` of the row's true position, in both directions.
++    """
++    from types import SimpleNamespace
++
++    from vllm.gfx906_fa.gfx906_fa_backend import (
++        Gfx906FAImpl,
++        Gfx906FAMetadata,
++    )
++
++    dev = "cuda"
++    torch.manual_seed(20261009)
++    L, sq, hq, hkv, d = 512, 8, 4, 2, 128
++    n_blocks = L // BLOCK
++    poison = n_blocks  # an extra physical block standing in for freed ones
++
++    kv = torch.zeros(n_blocks + 1, hkv, BLOCK, 2 * d, dtype=torch.float16, device=dev)
++    K = torch.randn(L, hkv, d, device=dev, dtype=torch.float16) * 0.5
++    V = torch.randn(L, hkv, d, device=dev, dtype=torch.float16) * 0.5
++
++    impl = Gfx906FAImpl(
++        num_heads=hq,
++        head_size=d,
++        scale=1.0 / math.sqrt(d),
++        num_kv_heads=hkv,
++        alibi_slopes=None,
++        sliding_window=window,
++        kv_cache_dtype="float16",
++    )
++    layer = SimpleNamespace(_k_scale=1.0, _v_scale=1.0)
++    impl.do_kv_cache_update(
++        layer, K, V, kv, torch.arange(L, dtype=torch.int64, device=dev)
++    )
++    nan = torch.full((BLOCK, hkv, d), float("nan"), dtype=torch.float16, device=dev)
++    impl.do_kv_cache_update(
++        layer, nan, nan, kv,
++        torch.arange(poison * BLOCK, (poison + 1) * BLOCK, device=dev),
++    )
++
++    first_needed = L - sq + 1 - window  # row 0's window start
++    bt = torch.arange(n_blocks, dtype=torch.int32, device=dev)
++    bt[: (first_needed - 128) // BLOCK] = poison
++    m = Gfx906FAMetadata(
++        num_actual_tokens=sq,
++        max_query_len=sq,
++        max_seq_len=L,
++        query_start_loc=torch.tensor([0, sq], dtype=torch.int32, device=dev),
++        seq_lens=torch.tensor([L], dtype=torch.int32, device=dev),
++        block_table=bt.view(1, n_blocks),
++        slot_mapping=torch.arange(L - sq, L, dtype=torch.int64, device=dev),
++        causal=False,
++    )
++    q = torch.randn(sq, hq, d, device=dev, dtype=torch.float32) * 0.5
++    out = torch.empty(sq, hq, d, dtype=torch.float16, device=dev)
++    got = impl.forward(layer, q, K, V, kv, m, output=out)
++    got = (out if got is None else got).float().view(sq, hq, d)
++    assert torch.isfinite(got).all(), "read a freed block outside the window"
++
++    scale = 1.0 / math.sqrt(d)
++    g = hq // hkv
++    Kf, Vf = K.float(), V.float()
++    for j in range(sq):
++        lo = L - sq + j - window + 1
++        qg = q[j].view(hkv, g, d)
++        s_w = torch.einsum("gjd,lgd->gjl", qg, Kf[lo:]) * scale
++        ref = torch.einsum("gjl,lgd->gjd", torch.softmax(s_w, -1), Vf[lo:])
++        rel = ((got[j] - ref.reshape(hq, d)).norm() / ref.norm()).item()
++        assert rel < 5e-2, f"window={window} row {j}: rel {rel:.4f}"
++
+ def test_non_causal_causality_contract(monkeypatch):
+     """FA-NONCAUSAL: the bool contract is honoured, the tensor form is not claimed.
+ 
+diff --git a/vllm/gfx906_fa/gfx906_fa_paged.py b/vllm/gfx906_fa/gfx906_fa_paged.py
+index 73e7835..dcfb64a 100644
+--- a/vllm/gfx906_fa/gfx906_fa_paged.py
++++ b/vllm/gfx906_fa/gfx906_fa_paged.py
+@@ -364,6 +364,21 @@ def _gather_clip_start(seq_lens: torch.Tensor,
+             .to(torch.int32).contiguous())
+ 
+ 
++def _noncausal_window_args(seq_lens: torch.Tensor, max_seqlen_q: int,
++                           nc_window: int) -> tuple[torch.Tensor, int]:
++    """(q_abs_offset, kernel window) for a non-causal sliding-window batch.
++
++    Row j of a uniform n_q-row block sits at seq_len - n_q + j. With
++    q_abs_offset = seq_len the kernel's row position is seq_len + j > every key,
++    so its causal test never masks; its window test then masks keys with
++    (seq_len + j) - k >= nc_window + n_q, i.e. keys nc_window or more behind the
++    row's true position: the drafter's trained (symmetric) window, whose right
++    side the block never reaches.
++    """
++    sl = seq_lens if seq_lens.dtype == torch.int32 else seq_lens.to(torch.int32)
++    return sl.contiguous(), nc_window + max_seqlen_q
++
++
+ def forward_paged(
+     query: torch.Tensor,            # [num_tokens, Hq, D] fp16 (cast into fp32 q_pad)
+     key_cache: torch.Tensor,        # [num_blocks, block_size, Hkv, D]  fp16
+@@ -432,7 +447,17 @@ def forward_paged(
+     # (MUSE-2 measured 2.95 through the ROCM_ATTN fallback, which does implement
+     # the symmetric window); if acceptance drops, Stage 2 adds the symmetric
+     # window to the kernel.
++    #
++    # Sliding-window drafters (DFlash2: all layers sliding 2048) must keep their
++    # window: the KV-cache manager frees a sliding layer's blocks once they fall
++    # out of the window, so attending over [0, seq_len) past ~window tokens reads
++    # freed/placeholder blocks and the drafts collapse to garbage (0 % accepted
++    # beyond ~2-4k context). `nc_window` keeps the window for the clip, and
++    # _noncausal_window_args expresses "no causal clip, left window only" with
++    # the kernel's existing causal+window mask.
++    nc_window = 0
+     if non_causal:
++        nc_window = window
+         window = 0
+ 
+     # -------- Sq / Sk padding --------
+@@ -556,11 +581,15 @@ def forward_paged(
+         # _gather_clip_start below, at every batch size (they pass
+         # kv_start for prefill too, so the M2 kernel raise applies
+         # there as well).
++        kv_window = window
++        if non_causal and nc_window > 0:
++            q_abs_offset_tensor, kv_window = _noncausal_window_args(
++                sl_i32, max_seqlen_q, nc_window)
+         kv_start_tensor = None
+-        if _WINDOW_CLIP and window > 0:
++        if _WINDOW_CLIP and kv_window > 0:
+             # kv_start = max(0, q_abs + 1 - window); int32 throughout
+             # (q_abs is bounded by the context length).
+-            kv_start_tensor = (q_abs_offset_tensor + (1 - window)).clamp_(
++            kv_start_tensor = (q_abs_offset_tensor + (1 - kv_window)).clamp_(
+                 min=0)
+             kv_start_tensor = kv_start_tensor.contiguous()
+ 
+@@ -581,7 +610,7 @@ def forward_paged(
+                 float(scale),
+                 None,                     # mask
+                 q_abs_offset_tensor,      # inline causal
+-                window=window,
++                window=kv_window,
+                 kv_start=kv_start_tensor,
+             )
+             if _DBG:
+@@ -689,13 +718,13 @@ def forward_paged(
+                  else seq_lens.to(torch.int32))
+         bt_i32 = bt_i32.contiguous()
+         sl_i32 = sl_i32.contiguous()
+-        if _GATHER_CLIP and window > 0:
++        if _GATHER_CLIP and (window or nc_window) > 0:
+             # M1 (LOCKSTEP with the persistent branch below): per-seq
+             # clip start — the fused Q8 gather skips tokens [0, start)
+             # and the FA k-loop starts at floor(start); the gather
+             # margin guarantees the floored start is materialized.
+             kv_start_tensor = _gather_clip_start(
+-                seq_lens, cu_seqlens_q, window, num_seqs)
++                seq_lens, cu_seqlens_q, window or nc_window, num_seqs)
+         K_q8, V_bhsd = gfx906_fa.gather_paged_kv_q8(
+             key_cache_q8, value_cache, bt_i32, sl_i32, Sk_pad,
+             k_out=k_exact, v_out=v_exact,
+@@ -773,12 +802,12 @@ def forward_paged(
+                 # (FA cuts at kv_max; margin zeros per
+                 # GFX906_FA_PERSIST_MARGIN). num_seqs > _PERSIST_MAX_SEQS
+                 # falls through to the fused/two-kernel paths below.
+-                if _GATHER_CLIP and window > 0:
++                if _GATHER_CLIP and (window or nc_window) > 0:
+                     # M1: conservative per-seq clip start (see
+                     # _gather_clip_start; LOCKSTEP with the fused Q8
+                     # branch above).
+                     kv_start_tensor = _gather_clip_start(
+-                        seq_lens, cu_seqlens_q, window, num_seqs)
++                        seq_lens, cu_seqlens_q, window or nc_window, num_seqs)
+                 K_q8, V_bhsd = gfx906_fa.gather_paged_kv_quant_persistent(
+                     key_cache, value_cache, bt_i32, sl_i32, Sk_arg,
+                     k_out=kbuf, v_out=vbuf,
+@@ -921,6 +950,10 @@ def forward_paged(
+         # padding всё равно обрезано через Sq_pad и bounds-check в quantize_Q).
+         q_abs_offset_tensor = (sl_i64 - n_q_per_seq).to(torch.int32).contiguous()
+ 
++    if non_causal and nc_window > 0:
++        q_abs_offset_tensor, window = _noncausal_window_args(
++            seq_lens, max_seqlen_q, nc_window)
++
+     if _DBG:
+         _path = ("FUSED" if (key_cache_q8 is not None and _FUSED)
+                  else "FAST" if key_cache_q8 is not None
+-- 
+2.47.3
+

@@ -1,0 +1,107 @@
+--- a/vllm/v1/worker/gpu/model_runner.py
++++ b/vllm/v1/worker/gpu/model_runner.py
+@@ -26,6 +26,8 @@
+ 
+ import numpy as np
+ import torch
++
++from vllm.v1.worker.gpu import gfx906_steptimer as _st
+ import torch.nn as nn
+ 
+ import vllm.envs as envs
+@@ -1711,20 +1713,22 @@
+             if self.observability_config.cudagraph_metrics:
+                 cudagraph_stats = make_cudagraph_stats(batch_desc, num_toks)
+             assert batch_req_state is not None
+-            input_batch = self.prepare_inputs(
+-                scheduler_output, batch_req_state, batch_desc
+-            )
+-            block_tables, slot_mappings = self.prepare_attn(input_batch)
++            with _st.TIMER.region("prep_inputs"):
++                input_batch = self.prepare_inputs(
++                    scheduler_output, batch_req_state, batch_desc
++                )
++                block_tables, slot_mappings = self.prepare_attn(input_batch)
+             # Mamba "align" pre-copy: migrate recurrent state across block
+             # boundaries before the forward. Runs only on real batches, and
+             # before model_state.prepare_attn gathers num_accepted_tokens so the
+             # boundary reset is visible to the attention metadata.
+-            self.model_state.preprocess_state(
+-                input_batch,
+-                block_tables,
+-                self.kv_cache_config,
+-                self.req_states.num_computed_tokens.gpu,
+-            )
++            with _st.TIMER.region("mamba_precopy"):
++                self.model_state.preprocess_state(
++                    input_batch,
++                    block_tables,
++                    self.kv_cache_config,
++                    self.req_states.num_computed_tokens.gpu,
++                )
+ 
+             if self.lora_config:
+                 # Activate LoRA adapters.
+@@ -1808,18 +1812,19 @@
+                     [g for g in groups if not isinstance(g.kv_cache_spec, MambaSpec)]
+                     for groups in attn_groups
+                 ]
+-            attn_metadata = self.model_state.prepare_attn(
+-                input_batch,
+-                batch_desc.cg_mode,
+-                block_tables,
+-                slot_mappings,
+-                attn_groups,
+-                self.kv_cache_config,
+-                # FULL replay reads capture-time metadata buffers. Re-stage them
+-                # from the zeroed dummy block tables instead of retaining state
+-                # indices from the previous real batch.
+-                for_capture=dummy_run and batch_desc.cg_mode == CUDAGraphMode.FULL,
+-            )
++            with _st.TIMER.region("attn_metadata"):
++                attn_metadata = self.model_state.prepare_attn(
++                    input_batch,
++                    batch_desc.cg_mode,
++                    block_tables,
++                    slot_mappings,
++                    attn_groups,
++                    self.kv_cache_config,
++                    # FULL replay reads capture-time metadata buffers. Re-stage them
++                    # from the zeroed dummy block tables instead of retaining state
++                    # indices from the previous real batch.
++                    for_capture=dummy_run and batch_desc.cg_mode == CUDAGraphMode.FULL,
++                )
+ 
+         input_ids = input_batch.input_ids
+         inputs_embeds = None
+@@ -1906,7 +1911,8 @@
+             self.kv_connector.pre_forward(
+                 **connector_kwargs, attn_metadata=attn_metadata
+             )
+-            model_output = self.cudagraph_manager.run_fullgraph(batch_desc)
++            with _st.TIMER.region("target_fwd"):
++                model_output = self.cudagraph_manager.run_fullgraph(batch_desc)
+         else:
+             # For piecewise and eager mode, just call model().
+             batch_descriptor = BatchDescriptor(
+@@ -2139,7 +2145,7 @@
+                     self.sampler._get_contexts(input_batch.idx_mapping),
+                     self.sampler.watermarking.gpu[input_batch.idx_mapping],
+                 )
+-            with use_workspace_lane(self._draft_workspace_lane):
++            with use_workspace_lane(self._draft_workspace_lane), _st.TIMER.region("propose"):
+                 draft_tokens = self.speculator.propose(
+                     input_batch,
+                     attn_metadata,
+@@ -2302,6 +2308,11 @@
+         return pcp.PCPManager
+ 
+ 
++if _st.ENABLED:
++    GPUModelRunner.execute_model = _st.wrap(GPUModelRunner.execute_model, "execute_model")
++    GPUModelRunner.sample_tokens = _st.wrap(GPUModelRunner.sample_tokens, "sample_tokens")
++
++
+ class ExecuteModelState(NamedTuple):
+     input_batch: InputBatch
+     attn_metadata: dict[str, Any] | None

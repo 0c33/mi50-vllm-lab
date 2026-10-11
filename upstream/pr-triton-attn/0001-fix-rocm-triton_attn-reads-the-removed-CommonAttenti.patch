@@ -1,0 +1,41 @@
+From 3b754498975790baed422bae9d89e7d3c64f2fb9 Mon Sep 17 00:00:00 2001
+From: Sami <247917809+0c33@users.noreply.github.com>
+Date: Fri, 9 Oct 2026 04:34:07 +0000
+Subject: [PATCH] fix(rocm): triton_attn reads the removed
+ CommonAttentionMetadata._seq_lens_cpu
+
+The 0.30.0 merge removed the seq_lens_cpu attention-metadata property
+(#55353), but TritonAttentionMetadataBuilder.build still reads
+common_attn_metadata._seq_lens_cpu, so every TRITON_ATTN engine dies at
+CUDA-graph capture with AttributeError. On gfx906 that is any config the
+custom FA rejects, e.g. --kv-cache-dtype int8_per_token_head (the KV dtype
+that fits a 160k context on 2x 16 GB cards). Only the opt-in torch-SDPA fast
+paths read seq_lens_cpu, and they skip when it is None.
+
+Verified: Qwen3.8-27B-AWQ-INT4, TP=2, MTP k=3, int8_per_token_head KV,
+163840 max-len boots, serves, and recalls a needle at a 100k-token prompt.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Sami <247917809+0c33@users.noreply.github.com>
+---
+ vllm/v1/attention/backends/triton_attn.py | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/vllm/v1/attention/backends/triton_attn.py b/vllm/v1/attention/backends/triton_attn.py
+index 1e2fbde..dc5d356 100644
+--- a/vllm/v1/attention/backends/triton_attn.py
++++ b/vllm/v1/attention/backends/triton_attn.py
+@@ -258,7 +258,9 @@ class TritonAttentionMetadataBuilder(AttentionMetadataBuilder[TritonAttentionMet
+             query_start_loc_cpu=common_attn_metadata.query_start_loc_cpu,
+             max_seq_len=max_seq_len,
+             seq_lens=seq_lens,
+-            seq_lens_cpu=common_attn_metadata._seq_lens_cpu,
++            # 0.30.0 removed CommonAttentionMetadata.seq_lens_cpu (#55353); only the
++            # opt-in torch-SDPA fast paths read it and they skip when it is None.
++            seq_lens_cpu=getattr(common_attn_metadata, "_seq_lens_cpu", None),
+             seq_lens_cpu_upper_bound=common_attn_metadata.seq_lens_cpu_upper_bound,
+             is_prefilling=common_attn_metadata.is_prefilling,
+             block_table=block_table_tensor,
+-- 
+2.47.3
+

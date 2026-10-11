@@ -1,0 +1,184 @@
+From eab95cdf1186e3c8b0a7a73fd6321294994d9d8e Mon Sep 17 00:00:00 2001
+From: Sami <247917809+0c33@users.noreply.github.com>
+Date: Fri, 9 Oct 2026 05:58:25 +0000
+Subject: [PATCH 3/3] docs(gfx906): DFlash2 is not dead - fp16 overflow +
+ freed-KV reads past the window
+
+Withdraws the 2026-09-16 "dead for this family" verdict: every run drafted
+in fp16 (vllm#55250 overflow) and, past ~2k context, the non-causal FA path
+read freed KV blocks. Records the serving A/B on main (10.2 -> 46.5 t/s,
+1.01 -> 4.65 tokens/step on the bench; 3.66-3.85 tokens/step at 4.6k-24.4k),
+the FA-NONCAUSAL stage-2 note, a superseded banner on the handover, and the
+DFL2-8 resolution.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Sami <247917809+0c33@users.noreply.github.com>
+---
+ docs/gfx906/DEVLOG-dflash2.md      | 75 ++++++++++++++++++++++++++++--
+ docs/gfx906/DEVLOG-fa-noncausal.md | 23 +++++++++
+ docs/gfx906/HANDOVER-dflash2.md    |  5 ++
+ docs/gfx906/ROADMAP.md             |  4 ++
+ 4 files changed, 104 insertions(+), 3 deletions(-)
+
+diff --git a/docs/gfx906/DEVLOG-dflash2.md b/docs/gfx906/DEVLOG-dflash2.md
+index 97344d8..d7d15cf 100644
+--- a/docs/gfx906/DEVLOG-dflash2.md
++++ b/docs/gfx906/DEVLOG-dflash2.md
+@@ -3,8 +3,11 @@
+ > Branch `gfx906/v2-bringup` → `main` · model Qwen3.8-27B-AWQ-INT4 (dense) +
+ > `incoai/Qwen3.8-27B-DFlash2` drafter · 2026-09-15 · roadmap `DFL2-1`, `DFL2-7`.
+ 
+-**VERDICT:** `OPEN` — the bring-up crash is fixed and shipped; the baseline gate (DFlash2 vs
+-MTP k=3) has not run yet.
++**VERDICT:** `SHIPPED` (2026-10-09) — DFlash2 drafts on gfx906 once two bugs are fixed: the
++draft overflows fp16, and the non-causal FA path dropped its sliding window and read freed KV
++blocks. The 2026-09-16 "dead for this family" verdict is withdrawn; see the 2026-10-09 entry.
++(Superseded header: `OPEN` — the bring-up crash is fixed and shipped; the baseline gate
++(DFlash2 vs MTP k=3) has not run yet.)
+ 
+ **GATE:** serving A/B, agentic corpus, DFlash2 at its recommended `num_speculative_tokens=7`
+ against MTP k=3 (with and without the CAT-1 shortlist — CAT-1 is MTP-only, verified, so a
+@@ -245,6 +248,71 @@ exclusions recorded above still stand, and the cheapest decisive test remains th
+ *cards' own matched pair on a stock vLLM* (their nightly has both DFlash2 and
+ pack-quantized).
+ 
++## 2026-10-09 — DFlash2 is not dead: fp16 overflow + freed-KV reads past the window (both fixed)
++
++**VERDICT:** `SHIPPED` · **GATE:** serving A/B on fork `main` (`6ccbb03`), 2× MI50 16 GB
++(TP=2, both cards capped at 90 W), Qwen3.8-27B-AWQ-INT4 + `z-lab/Qwen3.8-27B-DFlash2`
++(byte-identical to `incoai/Qwen3.8-27B-DFlash2`, sha256 `67fc76d6…`), k=7, V2, float16,
++max-len 32768, max-num-seqs 1, bt 1024, capture `[8]`, prefix caching off, KV pinned 2 GiB.
++"bench" = 6 chat-templated 512-token greedy generations (prose / code / reasoning × 2);
++the long rows are one code-reading prompt each (tg 384, greedy).
++
++### HYPOTHESIS
++
++If the 0 % acceptance of 2026-09-15/16 comes from our numerics/plumbing rather than the
++checkpoint, then keeping the draft's residual stream inside fp16 range and keeping its sliding
++window in the non-causal FA path restore the model card's acceptance (4–5 tokens/step).
++
++### What was done
++
++- **Root cause 1 — fp16 overflow (every context).** vllm#55250: the bf16-trained draft's
++  residual stream passes 65504 by its second layer, goes inf/NaN, the candidates degrade to ids
++  0..top_k-1 and acceptance is exactly 0. Every arm in this log, the bf16-pair run and the
++  5070 Ti run in `HANDOVER-dflash2.md` ran the draft in fp16 (gfx906 has no bf16; fp16 targets
++  cast the draft). Fix: `rescale_residual_stream` (`qwen3_dflash2.py`) scales o_proj, the up
++  half of gate_up_proj and down_proj (and the layer-0 residual) by a power of two at load time.
++  Every branch reads the stream through an RMSNorm and the grouped conv's `finish` is linear in
++  the branch output, so nothing the draft computes changes. fp16 drafts only;
++  `VLLM_DFLASH2_FP16_RESIDUAL_DIVISOR=1` turns it off.
++- **Root cause 2 — window dropped (context > ~2k).** FA-NONCAUSAL stage 1 zeroes `window` for
++  non-causal batches, so the draft attended over `[0, seq_len)`; the KV manager frees a sliding
++  layer's blocks once they leave the window, so past ~2–4k the draft read freed blocks and
++  acceptance fell to exactly 0 again. Fix (`gfx906_fa_paged.py`, Python only):
++  `q_abs_offset = seq_len` and `window + n_q` express "no causal clip, left window only" with
++  the existing mask, and the gather clip is kept (`DEVLOG-fa-noncausal.md` 2026-10-09).
++- Tests: `test_dflash2_residual_rescale_is_exact`, `test_dflash2_residual_rescale_keeps_fp16_finite`
++  (`tests/v1/spec_decode/test_dflash2.py`), `test_non_causal_sliding_window_never_reads_freed_blocks[64|200]`
++  (`tests/kernels/attention/test_gfx906_fa.py`; fails on the previous code). `test_gfx906_fa.py` +
++  `test_dflash2.py` + `test_dflash_causality.py`: **127 passed**.
++
++### Evidence — FOR (gate above; t/s with tokens/step in parentheses)
++
++| arm | bench | 1.5k | 4.6k | 14.6k | 24.4k |
++|---|---|---|---|---|---|
++| `main` | 10.21 (1.01) | 9.65 (1.00) | — | — | — |
++| + fp16 rescale only | 48.42 (4.82) | 39.47 (4.03) | 9.61 (1.00) | 8.76 (1.00) | — |
++| + rescale + window | **46.54 (4.65)** | **39.63 (4.03)** | **34.84 (3.66)** | **32.75 (3.70)** | **31.40 (3.85)** |
++
++Per-position acceptance (server log, 10-s windows, both fixes): pos 0 between 0.54 (prose) and
++0.94 (code/reasoning); a code window reads 0.94 / 0.83 / 0.71 / 0.63 / 0.53 / 0.45 / 0.40. The
++2026-09-15 runs read 0.04 / 0.06 / 0.0 at pos 0.
++
++### Evidence — AGAINST / limits
++
++- Not yet gated against MTP k=3 on the 32 GB production config (agentic corpus, 64k/120k). On
++  this 16 GB / 90 W box, bench MTP k=3 (V1, max-len 32768, 4 seqs) read 49.9 t/s, a tie on
++  average: DFlash2 wins on code and reasoning, loses on prose.
++- The 3.6 GB draft costs ~1.8 GiB/rank. On 16 GB cards that limits DFlash2 to ~32k context and
++  1 sequence.
++- Prefix caching stays off for DFlash2 on hybrid targets (vLLM#48375 unmerged).
++
++### Why the 2026-09-16 verdict was wrong
++
++Each suspect was "excluded" by a run whose draft was fp16, so root cause 1 masked every
++experiment. The bf16-pair run used `--dtype float16` too, which this fork requires. PR #38
++(v0.28.0 line, open) found the same overflow independently and fixes it with an fp32 residual
++stream. #41 ported #38's small fixes to the 0.30.0 line without this one.
++
+ ## Refrigerated residue
+ 
+ `rocm_unquantized_gemm`'s 3-D branches still pass `x` (not the flattened view) to
+@@ -253,5 +321,6 @@ call sites would be clearer if they passed `x_view` explicitly.
+ 
+ ## Search keys
+ 
+-`HYPOTHESIS:` DFlash2 cheaper than MTP k=3; `VERDICT:` OPEN; `GATE:` DFlash2-vs-MTP serving A/B;
++`HYPOTHESIS:` DFlash2 cheaper than MTP k=3; `VERDICT:` SHIPPED (2026-10-09: fp16 overflow +
++non-causal window); `rescale_residual_stream`; `GATE:` DFlash2-vs-MTP serving A/B;
+ `triton_matmul` 3-D / `[K, N]`; `DFL2-7` GEMV coverage.
+diff --git a/docs/gfx906/DEVLOG-fa-noncausal.md b/docs/gfx906/DEVLOG-fa-noncausal.md
+index 5256d88..569045a 100644
+--- a/docs/gfx906/DEVLOG-fa-noncausal.md
++++ b/docs/gfx906/DEVLOG-fa-noncausal.md
+@@ -247,3 +247,26 @@ the kind of drift an un-reaped predecessor would produce, and the string of load
+ `reap_gpu_procs` helper (KFD VRAM > 1 GiB -> TERM then KILL), so the next session's numbers are
+ not confounded by it. The range above is quoted *because* of this: a single 43.5 t/s run cannot be
+ distinguished from an orphan-free lucky run.
++
++## 2026-10-09 — Stage 2 (the window) is needed after all: past the window, stage 1 reads freed KV
++
++**VERDICT:** `SHIPPED` · **GATE:** `test_non_causal_sliding_window_never_reads_freed_blocks`
++(fails on stage 1 with "read a freed block outside the window") plus the DFlash2 long-context
++serving rows in `DEVLOG-dflash2.md` 2026-10-09 (4.6k / 14.6k / 24.4k prompts: 0 % accepted on
++stage 1 → 3.66 / 3.70 / 3.85 tokens/step).
++
++The 2026-09-17 entry judged the superset mask harmless because Muse ran at 8k with short
++prompts. The hazard is not the extra keys, though. A sliding layer's KV blocks are **freed** once
++they fall out of its window, so a non-causal sliding batch that attends `[0, seq_len)` reads
++freed or placeholder blocks as soon as the context exceeds the window. For the DFlash2 drafter
++(sliding 2048) that is exactly 0 % acceptance from ~2–4k context on.
++
++The fix needs no kernel change. For a non-causal batch with `window > 0`, `forward_paged` keeps
++the window for the gather clip (`_gather_clip_start`, first row's window start) and passes
++`q_abs_offset = seq_len`, `window = nc_window + n_q` to the existing mask. Every key now sits
++before the row, so the causal test never fires. The window test then masks keys `nc_window` or
++more behind each row's true position. That is the reference's symmetric window, whose right
++side a block of n_q rows never reaches. The direct-paged branch gets the same arguments. The
++clip and the k-loop start are the ones causal sliding layers already use, so the
++`GATHER_CLIP_MARGIN` contract carries over unchanged.
++
+diff --git a/docs/gfx906/HANDOVER-dflash2.md b/docs/gfx906/HANDOVER-dflash2.md
+index c99b28d..0dcf73a 100644
+--- a/docs/gfx906/HANDOVER-dflash2.md
++++ b/docs/gfx906/HANDOVER-dflash2.md
+@@ -1,5 +1,10 @@
+ # Handover — DFlash2 pairing test on the other (NVIDIA) box
+ 
++> **Superseded 2026-10-09.** The "DFlash2 is dead for this family" conclusion below is wrong.
++> Every run here drafted in fp16, and the draft overflows fp16 (vLLM#55250). On this fork the
++> non-causal FA path also read freed KV past the draft's window. Both are fixed: see
++> `DEVLOG-dflash2.md` 2026-10-09 (3.7–4.8 tokens/step, up to 24k tested).
++
+ **This is the in-repo copy; the live copy the other agent reads is
+ `/data/docs/dflash2-handover.md` (shared mount, identical text).** It is a work order, not a dev
+ log: our own measurements and the open verdict live in `DEVLOG-dflash2.md`, and the queue items in
+diff --git a/docs/gfx906/ROADMAP.md b/docs/gfx906/ROADMAP.md
+index 90723dc..40c5d0c 100644
+--- a/docs/gfx906/ROADMAP.md
++++ b/docs/gfx906/ROADMAP.md
+@@ -735,6 +735,10 @@ counterfactually). Full analysis + probe design:
+ 
+ ### DFL2-8 — the DFlash2 drafter's attention backend (blocking unknown; correctness + speed)
+ 
++**2026-10-09: resolved.** CUSTOM serves the drafter since FA-NONCAUSAL. The 0 % acceptance was
++the fp16 overflow plus the window that stage 1 dropped (freed-KV reads past 2k); both are fixed
++in `DEVLOG-dflash2.md` 2026-10-09. The DFL2-* "parked" notes predate that and can be re-opened.
++
+ **Status: open — highest priority in the DFlash2 family (2026-09-15).** With the bring-up crash
+ fixed, arm C measured **2.48 t/s / acceptance 0.045 / 421.9 ms/step** at 64k against the MTP k=3
+ band (33.62 plain, 35.44 with CAT-1) — a 13x gap that no downstream patch can close. The log says
+-- 
+2.47.3
+

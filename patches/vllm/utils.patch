@@ -1,0 +1,63 @@
+--- a/vllm/model_executor/layers/utils.py
++++ b/vllm/model_executor/layers/utils.py
+@@ -661,6 +661,48 @@
+     return chunkk, fits
+ 
+ 
++_GFX906_SKINNY8_LIB = os.environ.get("VLLM_GFX906_SKINNY8_LIB", "")
++_GFX906_SKINNY8_VARIANT = int(os.environ.get("VLLM_GFX906_SKINNY8_VARIANT", "20"))
++
++
++@functools.cache
++def _gfx906_skinny8_available() -> bool:
++    """Load the M<=8 skinny fp16 GEMM library (VLLM_GFX906_SKINNY8_LIB)."""
++    if not _GFX906_SKINNY8_LIB:
++        return False
++    try:
++        torch.ops.load_library(_GFX906_SKINNY8_LIB)
++    except Exception as e:  # noqa: BLE001
++        logger.warning("gfx906 skinny8 GEMM library failed to load: %s", e)
++        return False
++    logger.info_once("gfx906 skinny8 GEMM enabled (%s)", _GFX906_SKINNY8_LIB)
++    return True
++
++
++def _gfx906_skinny8(x: torch.Tensor, weight: torch.Tensor) -> torch.Tensor | None:
++    """M=1..8 fp16 GEMM that streams W once and stages X in LDS.
++
++    The spec-decode verify/draft shapes (M = k+1 rows) otherwise land on
++    kernels that re-read X per weight row or on the M-invariant triton
++    fallback; this one runs the 124k-row lm_head at M=8 in ~3.5 ms vs ~6.7.
++    """
++    n = x.numel() // x.size(-1)
++    m, k = weight.shape
++    if not (
++        1 <= n <= 8
++        and m >= 1024
++        and k % 512 == 0
++        and x.dtype == torch.float16
++        and weight.dtype == torch.float16
++        and weight.is_contiguous()
++        and _gfx906_skinny8_available()
++    ):
++        return None
++    x_view = x.reshape(-1, k).contiguous()
++    out = torch.ops.gfx906_skinny.gemm(x_view, weight, _GFX906_SKINNY8_VARIANT)
++    return out.reshape(*x.shape[:-1], m)
++
++
+ def rocm_unquantized_gemm_impl(
+     x: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor | None = None
+ ) -> torch.Tensor:
+@@ -676,6 +718,11 @@
+     m = weight.shape[0]
+     k = weight.shape[1]
+ 
++    if on_gfx906() and bias is None:
++        out = _gfx906_skinny8(x, weight)
++        if out is not None:
++            return out
++
+     cu_count = 0
+     if not on_gfx906():
+         cu_count = num_compute_units()
