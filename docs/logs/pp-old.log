@@ -1,0 +1,4 @@
+   old    1845 tokens       4.8 s    384.5 tok/s   mean 131.7 W/card  sclk  1030 MHz  peak 67 C
+   old    7800 tokens      30.7 s    253.7 tok/s   mean  91.3 W/card  sclk   990 MHz  peak 65 C
+   old   31531 tokens     203.3 s    155.1 tok/s   mean  83.7 W/card  sclk  1166 MHz  peak 82 C
+   old   62910 tokens     695.7 s     90.4 tok/s   mean  70.2 W/card  sclk  1136 MHz  peak 83 C

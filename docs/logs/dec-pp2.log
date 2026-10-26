@@ -1,0 +1,21 @@
+tag=pp2 reps=3 max_tokens=256 temp=0.0
+[pp2] ctx    890: prefill/cache    2.9 s
+[pp2] ctx    890 rep0: TTFT  2.87s decode  66.73 t/s  accept len 3.08    46.0 ms/step  power  81.1 W (cap  90.0)  junction max 55 C
+[pp2] ctx    890 rep1: TTFT  2.90s decode  66.74 t/s  accept len 3.08    46.0 ms/step  power  85.2 W (cap  90.0)  junction max 57 C
+[pp2] ctx    890 rep2: TTFT  2.91s decode  66.60 t/s  accept len 3.08    46.1 ms/step  power  81.0 W (cap  90.0)  junction max 59 C
+[pp2] ctx    890 MEAN:  66.69 t/s  accept len 3.08    46.1 ms/step
+[pp2] ctx  15897: prefill/cache   59.6 s
+[pp2] ctx  15897 rep0: TTFT  7.10s decode  63.77 t/s  accept len 3.23    50.6 ms/step  power  95.7 W (cap  90.0)  junction max 70 C
+[pp2] ctx  15897 rep1: TTFT  7.11s decode  63.75 t/s  accept len 3.23    50.6 ms/step  power  85.8 W (cap  90.0)  junction max 70 C
+[pp2] ctx  15897 rep2: TTFT  7.09s decode  63.77 t/s  accept len 3.23    50.6 ms/step  power  95.6 W (cap  90.0)  junction max 70 C
+[pp2] ctx  15897 MEAN:  63.76 t/s  accept len 3.23    50.6 ms/step
+[pp2] ctx  30455: prefill/cache  152.7 s
+[pp2] ctx  30455 rep0: TTFT 10.20s decode  57.43 t/s  accept len 3.04    52.9 ms/step  power  94.0 W (cap  90.0)  junction max 72 C
+[pp2] ctx  30455 rep1: TTFT 10.18s decode  57.52 t/s  accept len 3.04    52.8 ms/step  power  93.4 W (cap  90.0)  junction max 71 C
+[pp2] ctx  30455 rep2: TTFT 10.19s decode  57.50 t/s  accept len 3.04    52.8 ms/step  power  86.8 W (cap  90.0)  junction max 70 C
+[pp2] ctx  30455 MEAN:  57.48 t/s  accept len 3.04    52.8 ms/step
+[pp2] ctx  61434: prefill/cache  382.9 s
+[pp2] ctx  61434 rep0: TTFT 19.79s decode  48.12 t/s  accept len 2.92    60.2 ms/step  power  89.3 W (cap  90.0)  junction max 73 C
+[pp2] ctx  61434 rep1: TTFT 19.76s decode  48.18 t/s  accept len 2.92    60.1 ms/step  power  88.4 W (cap  90.0)  junction max 73 C
+[pp2] ctx  61434 rep2: TTFT 19.78s decode  48.22 t/s  accept len 2.92    60.1 ms/step  power  89.1 W (cap  90.0)  junction max 73 C
+[pp2] ctx  61434 MEAN:  48.17 t/s  accept len 2.92    60.2 ms/step

@@ -1,0 +1,30 @@
+--- a/vllm/v1/attention/ops/triton_unified_attention.py
++++ b/vllm/v1/attention/ops/triton_unified_attention.py
+@@ -7,6 +7,7 @@
+ #  - Chih-Chieh Yang <chih.chieh.yang@ibm.com>
+ #  - Thomas Parnell <tpa@zurich.ibm.com>
+ 
++import os
+ from typing import Any
+ 
+ import torch
+@@ -970,6 +971,19 @@
+         launch_num_warps = 8
+         launch_num_stages = 2
+ 
++    # gfx906 prefill: 64 query rows per program instead of 16, so each KV tile
++    # is reused by ~5x more queries. Qwen3.8-27B per TP=2 rank (12 q / 2 kv
++    # heads, head 256, int8 KV): 1.27 -> 2.29 TFLOPS at 0..128k context, same
++    # results (pp-tune/attn_bench.py). Decode-only batches keep BLOCK_M = 16.
++    if (
++        on_gfx906()
++        and max_seqlen_q > 16
++        and num_queries_per_kv <= 64
++        and os.environ.get("VLLM_GFX906_PREFILL_BLOCK_M", "64") != "16"
++    ):
++        BLOCK_M = int(os.environ.get("VLLM_GFX906_PREFILL_BLOCK_M", "64"))
++        BLOCK_Q = BLOCK_M // num_queries_per_kv
++
+     # Ideally we would launch with kernel with:
+     # \sum_i[ceil(query_len[i] / BLOCK_Q)] blocks.
+     # However, it is slow to realize the query_lens on cpu.

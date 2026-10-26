@@ -483,6 +483,9 @@ at::Tensor w4_gemm(const at::Tensor& a, const at::Tensor& qw, const at::Tensor& 
   const int M = a.size(0), K = a.size(1), N = qw.size(1);
   TORCH_CHECK(qw.size(0) * 8 == K && sc.size(0) * 32 == K && M >= 1 && M <= 8);
   auto y = at::empty({M, N}, a.options());
+  // The server always calls waves=14 (patches/vllm/exllama.patch): w4_skinny_s_kernel<M, 4>.
+  // The other values select experimental variants for bench_w4.py (c2 = two output columns
+  // per thread, 41/42 = ablations of the s kernel); the server does not use them.
 #define CASE(MM)                                              \
   case MM:                                                    \
     if (waves == 2) launch_w4<MM, 2>(a, qw, qz, sc, y, kw);   \

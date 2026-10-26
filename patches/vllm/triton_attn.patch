@@ -1,6 +1,79 @@
 --- a/vllm/v1/attention/backends/triton_attn.py
 +++ b/vllm/v1/attention/backends/triton_attn.py
-@@ -258,7 +258,9 @@
+@@ -2,6 +2,7 @@
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ """High-Performance Triton-only Attention layer."""
+ 
++import os
+ from dataclasses import dataclass, replace
+ from typing import ClassVar
+ 
+@@ -57,6 +58,64 @@
+ logger = init_logger(__name__)
+ 
+ 
++# gfx906: prefill rows of an int8 per-token-head KV cache go through the fork's
++# llama.cpp-derived FA kernel (dp4a Q.K, fp16 P.V), taught to read this cache in
++# place (/opt/gfx906/_gfx906_fa_pth.so, kernels-pp/fa_pth): 3.5x the stock Triton
++# prefill attention, 1.9x the tuned one. VLLM_GFX906_PTH_FA=0 turns it off.
++_PTH_FA_MIN_Q = int(os.environ.get("VLLM_GFX906_PTH_FA_MIN_Q", "64"))
++_pth_fa_mod = None
++# gfx906: rows with <= 4 query tokens (decode, MTP verification, the MTP drafter) go
++# through a split-K decode kernel for the same cache (/opt/gfx906/_gfx906_pth_dec.so,
++# kernels-pp/pth_dec): fp16 dot2 Q.K (no Q quantisation) and P.V, 3-4.5x the Triton
++# 3D decode path at long context, HIP-graph safe; it reuses the 3D path's softmax
++# segment buffers. VLLM_GFX906_PTH_DEC=0 turns it off.
++_PTH_DEC_MAX_Q = 4
++_PTH_DEC_SPLITS = int(os.environ.get("VLLM_GFX906_PTH_DEC_SPLITS", "64"))
++_pth_dec_mod = None
++
++
++def _load_pth_fa():
++    global _pth_fa_mod
++    if _pth_fa_mod is None:
++        _pth_fa_mod = False
++        path = os.environ.get("VLLM_GFX906_PTH_FA_LIB", "/opt/gfx906/_gfx906_fa_pth.so")
++        if os.environ.get("VLLM_GFX906_PTH_FA", "1") == "1" and path and os.path.exists(path):
++            try:
++                import importlib.machinery
++                import importlib.util
++
++                loader = importlib.machinery.ExtensionFileLoader("_gfx906_fa_pth", path)
++                spec = importlib.util.spec_from_loader("_gfx906_fa_pth", loader)
++                mod = importlib.util.module_from_spec(spec)
++                loader.exec_module(mod)
++                _pth_fa_mod = mod
++                logger.info_once("gfx906: int8 KV prefill attention via %s", path)
++            except Exception as e:  # keep serving on the Triton path
++                logger.warning("gfx906: could not load %s (%s); prefill stays on Triton", path, e)
++    return _pth_fa_mod or None
++
++
++def _load_pth_dec():
++    global _pth_dec_mod
++    if _pth_dec_mod is None:
++        _pth_dec_mod = False
++        path = os.environ.get("VLLM_GFX906_PTH_DEC_LIB", "/opt/gfx906/_gfx906_pth_dec.so")
++        if os.environ.get("VLLM_GFX906_PTH_DEC", "1") == "1" and path and os.path.exists(path):
++            try:
++                import importlib.machinery
++                import importlib.util
++
++                loader = importlib.machinery.ExtensionFileLoader("_gfx906_pth_dec", path)
++                spec = importlib.util.spec_from_loader("_gfx906_pth_dec", loader)
++                mod = importlib.util.module_from_spec(spec)
++                loader.exec_module(mod)
++                _pth_dec_mod = mod
++                logger.info_once("gfx906: int8 KV decode attention via %s", path)
++            except Exception as e:  # keep serving on the Triton path
++                logger.warning("gfx906: could not load %s (%s); decode stays on Triton", path, e)
++    return _pth_dec_mod or None
++
++
+ # constants
+ MIN_LAUNCH_GRID_SIZE_2D = 128  # Minimum launch grid size of 2D kernel
+ NUM_PAR_SOFTMAX_SEGMENTS = envs.VLLM_TRITON_ATTN_NUM_PAR_SOFTMAX_SEGMENTS
+@@ -258,7 +317,9 @@
              query_start_loc_cpu=common_attn_metadata.query_start_loc_cpu,
              max_seq_len=max_seq_len,
              seq_lens=seq_lens,
@@ -11,3 +84,229 @@
              seq_lens_cpu_upper_bound=common_attn_metadata.seq_lens_cpu_upper_bound,
              is_prefilling=common_attn_metadata.is_prefilling,
              block_table=block_table_tensor,
+@@ -573,6 +634,181 @@
+         else:
+             self.use_td = td_override
+ 
++        # gfx906 int8 KV prefill via the FA kernel and decode via the split-K
++        # kernel: plain causal decoder attention only (no window/sinks/alibi/
++        # softcap/chunking), head 256.
++        self._pth_fa = None
++        self._pth_dec = None
++        self._pth_dec_ok: bool | None = None  # cache layout check, done on first use
++        if (
++            self._kv_quant_mode == KVQuantMode.INT8_PER_TOKEN_HEAD
++            and current_platform.is_rocm()
++            and attn_type == AttentionType.DECODER
++            and head_size == 256
++            and self.sliding_window == (-1, -1)
++            and sinks is None
++            and self.alibi_slopes is None
++            and not self.logits_soft_cap
++            and self.chunk_lookback == -1
++            and not self.use_td
++        ):
++            from vllm.platforms.rocm import on_gfx906
++
++            if on_gfx906():
++                self._pth_fa = _load_pth_fa()
++                if num_heads == 6 * num_kv_heads:  # the decode kernel is built for GQA 6
++                    self._pth_dec = _load_pth_dec()
++
++    def _forward_pth_dec(
++        self,
++        query: torch.Tensor,
++        key_cache: torch.Tensor,
++        value_cache: torch.Tensor,
++        k_scale_cache: torch.Tensor,
++        v_scale_cache: torch.Tensor,
++        block_table: torch.Tensor,
++        seq_lens: torch.Tensor,
++        query_start_loc: torch.Tensor,
++        output: torch.Tensor,
++        max_q: int,
++        attn_metadata: TritonAttentionMetadata,
++    ) -> bool:
++        """Attention for sequences with <= 4 query tokens via the gfx906 split-K
++        decode kernel. Launch-only (no host sync, no allocation): safe in graphs."""
++        if self._pth_dec_ok is None:
++            self._pth_dec_ok = bool(
++                self._pth_dec.supported_layout(
++                    key_cache, value_cache, k_scale_cache, v_scale_cache
++                )
++            )
++            if not self._pth_dec_ok:
++                logger.warning_once(
++                    "gfx906: unexpected int8 KV cache layout; decode stays on Triton"
++                )
++        segm_o = attn_metadata.softmax_segm_output
++        if (
++            not self._pth_dec_ok
++            or segm_o is None
++            or attn_metadata.softmax_segm_max is None
++            or attn_metadata.softmax_segm_expsum is None
++            or query.shape[0] > segm_o.shape[0]
++            or query.dim() != 3
++            or output.dim() != 3
++            or query.stride(1) != query.shape[2]
++            or query.stride(2) != 1
++            or output.stride(2) != 1
++        ):
++            return False
++        self._pth_dec.decode(
++            query,
++            key_cache,
++            value_cache,
++            k_scale_cache,
++            v_scale_cache,
++            block_table,
++            seq_lens,
++            query_start_loc,
++            output,
++            self.scale,
++            segm_o,
++            attn_metadata.softmax_segm_max,
++            attn_metadata.softmax_segm_expsum,
++            seq_lens.shape[0],
++            max(1, max_q),
++            min(_PTH_DEC_SPLITS, segm_o.shape[2]),
++        )
++        return True
++
++    def _forward_pth_fa(
++        self,
++        query: torch.Tensor,
++        key_cache: torch.Tensor,
++        value_cache: torch.Tensor,
++        k_scale_cache: torch.Tensor,
++        v_scale_cache: torch.Tensor,
++        attn_metadata: TritonAttentionMetadata,
++        output: torch.Tensor,
++    ) -> bool:
++        """Run the rows with >= _PTH_FA_MIN_Q queries through the gfx906 FA kernel.
++
++        Those rows must form a suffix of the batch (hybrid models order the
++        batch decode-first); the rows before it go to the Triton kernel as
++        before. Eager only: prefill batches run outside CUDA graphs.
++        """
++        qsl = attn_metadata.query_start_loc_cpu.tolist()
++        n = len(qsl) - 1
++        p = n
++        while p > 0 and qsl[p] - qsl[p - 1] >= _PTH_FA_MIN_Q:
++            p -= 1
++        if p == n:
++            return False
++        max_q_prefix = max((qsl[i + 1] - qsl[i] for i in range(p)), default=0)
++        if p > 0 and not (
++            self._pth_dec is not None
++            and max_q_prefix <= _PTH_DEC_MAX_Q
++            and self._forward_pth_dec(
++                query[: qsl[p]],
++                key_cache,
++                value_cache,
++                k_scale_cache,
++                v_scale_cache,
++                attn_metadata.block_table[:p],
++                attn_metadata.seq_lens[:p],
++                attn_metadata.query_start_loc[: p + 1],
++                output[: qsl[p]],
++                max_q_prefix,
++                attn_metadata,
++            )
++        ):
++            unified_attention(
++                q=query[: qsl[p]],
++                k=key_cache,
++                v=value_cache,
++                out=output[: qsl[p]],
++                cu_seqlens_q=attn_metadata.query_start_loc[: p + 1],
++                max_seqlen_q=max_q_prefix,
++                seqused_k=attn_metadata.seq_lens[:p],
++                max_seqlen_k=attn_metadata.max_seq_len,
++                softmax_scale=self.scale,
++                causal=True,
++                window_size=self.sliding_window,
++                block_table=attn_metadata.block_table[:p],
++                softcap=self.logits_soft_cap,
++                q_descale=None,
++                k_descale=None,
++                v_descale=None,
++                seq_threshold_3D=attn_metadata.seq_threshold_3D,
++                num_par_softmax_segments=attn_metadata.num_par_softmax_segments,
++                softmax_segm_output=attn_metadata.softmax_segm_output,
++                softmax_segm_max=attn_metadata.softmax_segm_max,
++                softmax_segm_expsum=attn_metadata.softmax_segm_expsum,
++                kv_quant_mode=self._kv_quant_mode,
++                k_scale_cache=k_scale_cache,
++                v_scale_cache=v_scale_cache,
++            )
++        num_heads, head_size = query.shape[1], query.shape[2]
++        for i in range(p, n):
++            start, nq = qsl[i], qsl[i + 1] - qsl[i]
++            # fp32 Q padded to the kernel's 64-column tiles; pad rows are discarded
++            q_pad = torch.zeros(
++                (1, num_heads, (nq + 63) // 64 * 64, head_size),
++                dtype=torch.float32,
++                device=query.device,
++            )
++            q_pad[0, :, :nq] = query[start : start + nq].transpose(0, 1)
++            seq_len = attn_metadata.seq_lens[i : i + 1]
++            out = self._pth_fa.forward_pth(
++                q_pad,
++                key_cache,
++                value_cache,
++                attn_metadata.block_table[i : i + 1],
++                seq_len,
++                self.scale,
++                seq_len - nq,
++            )
++            output[start : start + nq] = out[0, :nq]
++        return True
++
+     @staticmethod
+     def _torch_sdpa_prefill_seq_lens_cpu(
+         attn_metadata: TritonAttentionMetadata,
+@@ -813,6 +1049,43 @@
+ 
+         mm_prefix_range_tensor = attn_metadata.mm_prefix_range_tensor
+ 
++        if (
++            self._pth_fa is not None
++            and max_seqlen_q >= _PTH_FA_MIN_Q
++            and attn_metadata.causal is True
++            and mm_prefix_range_tensor is None
++            and attn_metadata.rswa_prefix_lens is None
++            and output_scale is None
++            and self._forward_pth_fa(
++                query, key_cache, value_cache, k_scale_cache, v_scale_cache,
++                attn_metadata, output,
++            )
++        ):
++            return output
++
++        if (
++            self._pth_dec is not None
++            and max_seqlen_q <= _PTH_DEC_MAX_Q
++            and attn_metadata.causal is True
++            and mm_prefix_range_tensor is None
++            and attn_metadata.rswa_prefix_lens is None
++            and output_scale is None
++            and self._forward_pth_dec(
++                query[:num_actual_tokens],
++                key_cache,
++                value_cache,
++                k_scale_cache,
++                v_scale_cache,
++                block_table,
++                seqused_k,
++                cu_seqlens_q,
++                output[:num_actual_tokens],
++                max_seqlen_q,
++                attn_metadata,
++            )
++        ):
++            return output
++
+         if self._try_forward_torch_sdpa(
+             query[:num_actual_tokens],
+             key_cache,

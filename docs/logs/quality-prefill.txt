@@ -1,0 +1,4 @@
+# bench/quality.py compare q-fa.json q-tri.json  (new FA prefill kernel vs Triton prefill; 2026-10-12)
+   4124 tok: first token '/root' p=0.9642 vs p=0.9680, KL 3.69e-04, 8/8 greedy tokens identical; '/root/gfx-build/vllm-src' | '/root/gfx-build/vllm-src'
+  17600 tok: first token '/root' p=0.9475 vs p=0.9589, KL 1.58e-03, 8/8 greedy tokens identical; '/root/gfx-build/vllm-src' | '/root/gfx-build/vllm-src'
+  34309 tok: first token '/root' p=0.9314 vs p=0.9388, KL 6.45e-04, 8/8 greedy tokens identical; '/root/gfx-build/vllm-src' | '/root/gfx-build/vllm-src'

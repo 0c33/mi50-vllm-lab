@@ -1,0 +1,4 @@
+dump: 214185 chars from 11 files
+turn1: prompt  58703 tok  TTFT   365.9s ( 160.4 tok/s prefill)  decode  20.24 t/s  accept 3.31  needle OK
+turn2: prompt  58929 tok  TTFT    17.4s  decode  22.47 t/s  accept 3.64   (prefix-cached follow-up)
+answer head: The internal codename mentioned in the NOTE is **ORCHID-7731-TANGO**.  Based on the provided repository dump, **there is no information regarding how speculativ

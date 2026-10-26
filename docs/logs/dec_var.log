@@ -1,0 +1,26 @@
+# dec_var.py: final kernel = b_v3 (2 workgroups/CU, DPP reductions, branch-free K loads with prefetch).
+# The other rows are build variants and ablations (skip QK / skip PV / no reductions) used while tuning; they are not correct kernels.
+b_base                       B1 64k q4 ns64  1.274ms (2.53TF) | B1 64k q4 ns128  1.238ms (2.60TF) | B2 32k q4 ns64  1.258ms (2.56TF) | B4 16k q4 ns64  1.361ms (2.37TF) | B1 64k q1 ns128  0.496ms (1.63TF) | B1 16k q4 ns64  0.473ms (1.70TF)
+b_mb2                        B1 64k q4 ns64  0.951ms (3.39TF) | B1 64k q4 ns128  1.010ms (3.19TF) | B2 32k q4 ns64  1.066ms (3.02TF) | B4 16k q4 ns64  1.018ms (3.16TF) | B1 64k q1 ns128  0.499ms (1.62TF) | B1 16k q4 ns64  0.338ms (2.38TF)
+b_u8                         B1 64k q4 ns64  1.225ms (2.63TF) | B1 64k q4 ns128  1.194ms (2.70TF) | B2 32k q4 ns64  1.218ms (2.64TF) | B4 16k q4 ns64  1.308ms (2.46TF) | B1 64k q1 ns128  0.560ms (1.44TF) | B1 16k q4 ns64  0.452ms (1.78TF)
+b_mb2u8                      B1 64k q4 ns64  4.162ms (0.77TF) | B1 64k q4 ns128  4.371ms (0.74TF) | B2 32k q4 ns64  4.418ms (0.73TF) | B4 16k q4 ns64  4.397ms (0.73TF) | B1 64k q1 ns128  0.567ms (1.42TF) | B1 16k q4 ns64  1.379ms (0.58TF)
+b_mb2_skippv                 B1 64k q4 ns64  0.594ms (5.42TF) | B1 64k q4 ns128  0.587ms (5.49TF) | B2 32k q4 ns64  0.651ms (4.95TF) | B4 16k q4 ns64  0.623ms (5.17TF) | B1 64k q1 ns128  0.332ms (2.43TF) | B1 16k q4 ns64  0.219ms (3.68TF)
+Traceback (most recent call last):
+  File "/pp/dec_var.py", line 6, in <module>
+    pd = importlib.util.module_from_spec(spec); spec.loader.exec_module(pd)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 813, in module_from_spec
+  File "<frozen importlib._bootstrap_external>", line 1289, in create_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+ImportError: /kpp/pth_dec/b_mb2_skipqk/_gfx906_pth_dec.so: cannot open shared object file: No such file or directory
+b_dpp                        B1 64k q4 ns64  0.902ms (3.57TF) | B1 64k q4 ns128  0.945ms (3.41TF) | B2 32k q4 ns64  1.008ms (3.20TF) | B4 16k q4 ns64  0.953ms (3.38TF) | B1 64k q1 ns128  0.487ms (1.65TF) | B1 16k q4 ns64  0.321ms (2.51TF)
+b_shfl                       B1 64k q4 ns64  0.952ms (3.38TF) | B1 64k q4 ns128  1.011ms (3.19TF) | B2 32k q4 ns64  1.067ms (3.02TF) | B4 16k q4 ns64  1.019ms (3.16TF) | B1 64k q1 ns128  0.498ms (1.62TF) | B1 16k q4 ns64  0.339ms (2.38TF)
+b_dpp_skippv                 B1 64k q4 ns64  0.545ms (5.91TF) | B1 64k q4 ns128  0.534ms (6.04TF) | B2 32k q4 ns64  0.591ms (5.45TF) | B4 16k q4 ns64  0.564ms (5.71TF) | B1 64k q1 ns128  0.328ms (2.46TF) | B1 16k q4 ns64  0.202ms (3.98TF)
+b_nored_skippv               B1 64k q4 ns64  0.520ms (6.20TF) | B1 64k q4 ns128  0.500ms (6.44TF) | B2 32k q4 ns64  0.560ms (5.76TF) | B4 16k q4 ns64  0.535ms (6.03TF) | B1 64k q1 ns128  0.324ms (2.49TF) | B1 16k q4 ns64  0.192ms (4.20TF)
+b_v2                         B1 64k q4 ns64  0.989ms (3.26TF) | B1 64k q4 ns128  1.036ms (3.11TF) | B2 32k q4 ns64  1.114ms (2.89TF) | B4 16k q4 ns64  1.087ms (2.96TF) | B1 64k q1 ns128  0.360ms (2.23TF) | B1 16k q4 ns64  0.370ms (2.18TF)
+b_v2_skippv                  B1 64k q4 ns64  0.487ms (6.62TF) | B1 64k q4 ns128  0.466ms (6.92TF) | B2 32k q4 ns64  0.527ms (6.11TF) | B4 16k q4 ns64  0.520ms (6.20TF) | B1 64k q1 ns128  0.196ms (4.10TF) | B1 16k q4 ns64  0.189ms (4.25TF)
+b_v2_u8                      B1 64k q4 ns64  1.039ms (3.10TF) | B1 64k q4 ns128  1.092ms (2.95TF) | B2 32k q4 ns64  1.173ms (2.75TF) | B4 16k q4 ns64  1.148ms (2.81TF) | B1 64k q1 ns128  0.437ms (1.84TF) | B1 16k q4 ns64  0.389ms (2.07TF)
+b_sameq_skippv               B1 64k q4 ns64  0.361ms (8.93TF) | B1 64k q4 ns128  0.425ms (7.58TF) | B2 32k q4 ns64  0.383ms (8.42TF) | B4 16k q4 ns64  0.401ms (8.03TF) | B1 64k q1 ns128  0.196ms (4.11TF) | B1 16k q4 ns64  0.155ms (5.21TF)
+b_noq_skippv                 B1 64k q4 ns64  0.325ms (9.91TF) | B1 64k q4 ns128  0.344ms (9.37TF) | B2 32k q4 ns64  0.331ms (9.74TF) | B4 16k q4 ns64  0.343ms (9.39TF) | B1 64k q1 ns128  0.197ms (4.09TF) | B1 16k q4 ns64  0.117ms (6.91TF)
+b_noq_noqk_skippv            B1 64k q4 ns64  0.125ms (25.87TF) | B1 64k q4 ns128  0.148ms (21.74TF) | B2 32k q4 ns64  0.132ms (24.43TF) | B4 16k q4 ns64  0.147ms (21.91TF) | B1 64k q1 ns128  0.077ms (10.53TF) | B1 16k q4 ns64  0.053ms (15.28TF)
+b_v3                         B1 64k q4 ns64  0.833ms (3.87TF) | B1 64k q4 ns128  0.862ms (3.74TF) | B2 32k q4 ns64  0.926ms (3.48TF) | B4 16k q4 ns64  0.896ms (3.60TF) | B1 64k q1 ns128  0.382ms (2.11TF) | B1 16k q4 ns64  0.305ms (2.64TF)

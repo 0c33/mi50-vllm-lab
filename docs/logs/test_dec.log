@@ -1,0 +1,79 @@
+correctness vs float64 (max abs err; |ref| ~ 0.01-0.1)
+  ctx [0]                      q [1]            HND     nsplit   1: pth_dec 1.2e-03  triton 1.2e-03  |ref| 0.919  OK
+  ctx [0]                      q [1]            HND     nsplit   7: pth_dec 1.2e-03  triton 1.2e-03  |ref| 0.919  OK
+  ctx [0]                      q [1]            HND     nsplit  64: pth_dec 1.2e-03  triton 1.2e-03  |ref| 0.919  OK
+  ctx [0]                      q [1]            HND     nsplit 128: pth_dec 1.2e-03  triton 1.2e-03  |ref| 0.919  OK
+  ctx [5]                      q [4]            HND     nsplit   1: pth_dec 9.1e-04  triton 9.1e-04  |ref| 0.295  OK
+  ctx [5]                      q [4]            HND     nsplit   7: pth_dec 9.1e-04  triton 9.1e-04  |ref| 0.295  OK
+  ctx [5]                      q [4]            HND     nsplit  64: pth_dec 9.1e-04  triton 9.1e-04  |ref| 0.295  OK
+  ctx [5]                      q [4]            HND     nsplit 128: pth_dec 9.1e-04  triton 9.1e-04  |ref| 0.295  OK
+  ctx [255]                    q [1]            HND     nsplit   1: pth_dec 1.5e-04  triton 1.7e-04  |ref| 0.093  OK
+  ctx [255]                    q [1]            HND     nsplit   7: pth_dec 1.5e-04  triton 1.7e-04  |ref| 0.093  OK
+  ctx [255]                    q [1]            HND     nsplit  64: pth_dec 1.5e-04  triton 1.7e-04  |ref| 0.093  OK
+  ctx [255]                    q [1]            HND     nsplit 128: pth_dec 1.5e-04  triton 1.7e-04  |ref| 0.093  OK
+  ctx [252]                    q [4]            HND     nsplit   1: pth_dec 3.8e-04  triton 3.7e-04  |ref| 0.113  OK
+  ctx [252]                    q [4]            HND     nsplit   7: pth_dec 3.8e-04  triton 3.7e-04  |ref| 0.113  OK
+  ctx [252]                    q [4]            HND     nsplit  64: pth_dec 3.8e-04  triton 3.7e-04  |ref| 0.113  OK
+  ctx [252]                    q [4]            HND     nsplit 128: pth_dec 3.8e-04  triton 3.7e-04  |ref| 0.113  OK
+  ctx [1000]                   q [4]            NHD     nsplit   1: pth_dec 1.9e-04  triton 1.7e-04  |ref| 0.063  OK
+  ctx [1000]                   q [4]            NHD     nsplit   7: pth_dec 1.9e-04  triton 1.7e-04  |ref| 0.063  OK
+  ctx [1000]                   q [4]            NHD     nsplit  64: pth_dec 1.9e-04  triton 1.7e-04  |ref| 0.063  OK
+  ctx [1000]                   q [4]            NHD     nsplit 128: pth_dec 1.9e-04  triton 1.7e-04  |ref| 0.063  OK
+  ctx [3185]                   q [4]            HND qnc nsplit   1: pth_dec 7.5e-05  triton 7.5e-05  |ref| 0.033  OK
+  ctx [3185]                   q [4]            HND qnc nsplit   7: pth_dec 7.5e-05  triton 7.5e-05  |ref| 0.033  OK
+  ctx [3185]                   q [4]            HND qnc nsplit  64: pth_dec 7.5e-05  triton 7.5e-05  |ref| 0.033  OK
+  ctx [3185]                   q [4]            HND qnc nsplit 128: pth_dec 7.5e-05  triton 7.5e-05  |ref| 0.033  OK
+  ctx [20000]                  q [4]            HND     nsplit   1: pth_dec 4.4e-05  triton 4.4e-05  |ref| 0.015  OK
+  ctx [20000]                  q [4]            HND     nsplit   7: pth_dec 3.9e-05  triton 4.4e-05  |ref| 0.015  OK
+  ctx [20000]                  q [4]            HND     nsplit  64: pth_dec 3.0e-05  triton 4.4e-05  |ref| 0.015  OK
+  ctx [20000]                  q [4]            HND     nsplit 128: pth_dec 4.4e-05  triton 4.4e-05  |ref| 0.015  OK
+  ctx [20000, 300, 7]          q [4, 4, 4]      NHD     nsplit   1: pth_dec 9.0e-04  triton 9.0e-04  |ref| 0.189  OK
+  ctx [20000, 300, 7]          q [4, 4, 4]      NHD     nsplit   7: pth_dec 9.0e-04  triton 9.0e-04  |ref| 0.189  OK
+  ctx [20000, 300, 7]          q [4, 4, 4]      NHD     nsplit  64: pth_dec 9.0e-04  triton 9.0e-04  |ref| 0.189  OK
+  ctx [20000, 300, 7]          q [4, 4, 4]      NHD     nsplit 128: pth_dec 9.0e-04  triton 9.0e-04  |ref| 0.189  OK
+  ctx [5000, 70000]            q [1, 1]         HND     nsplit   1: pth_dec 6.0e-05  triton 6.0e-05  |ref| 0.018  OK
+  ctx [5000, 70000]            q [1, 1]         HND     nsplit   7: pth_dec 6.0e-05  triton 6.0e-05  |ref| 0.018  OK
+  ctx [5000, 70000]            q [1, 1]         HND     nsplit  64: pth_dec 6.0e-05  triton 6.0e-05  |ref| 0.018  OK
+  ctx [5000, 70000]            q [1, 1]         HND     nsplit 128: pth_dec 6.0e-05  triton 6.0e-05  |ref| 0.018  OK
+  ctx [3000, 9, 40000, 1]      q [4, 1, 3, 2]   HND qnc nsplit   1: pth_dec 1.3e-03  triton 1.3e-03  |ref| 0.194  OK
+  ctx [3000, 9, 40000, 1]      q [4, 1, 3, 2]   HND qnc nsplit   7: pth_dec 1.3e-03  triton 1.3e-03  |ref| 0.194  OK
+  ctx [3000, 9, 40000, 1]      q [4, 1, 3, 2]   HND qnc nsplit  64: pth_dec 1.3e-03  triton 1.3e-03  |ref| 0.194  OK
+  ctx [3000, 9, 40000, 1]      q [4, 1, 3, 2]   HND qnc nsplit 128: pth_dec 1.3e-03  triton 1.3e-03  |ref| 0.194  OK
+  ctx [4000, 0, 0]             q [4, 0, 0]      HND     nsplit   1: pth_dec 6.1e-05  triton 7.7e-05  |ref| 0.029  OK
+  ctx [4000, 0, 0]             q [4, 0, 0]      HND     nsplit   7: pth_dec 6.1e-05  triton 7.7e-05  |ref| 0.029  OK
+  ctx [4000, 0, 0]             q [4, 0, 0]      HND     nsplit  64: pth_dec 6.1e-05  triton 7.7e-05  |ref| 0.029  OK
+  ctx [4000, 0, 0]             q [4, 0, 0]      HND     nsplit 128: pth_dec 6.1e-05  triton 7.7e-05  |ref| 0.029  OK
+  ctx [1580]                   q [4]            HND     nsplit   1: pth_dec 1.3e-04  triton 1.9e-04  |ref| 0.050  OK
+  ctx [1580]                   q [4]            HND     nsplit   7: pth_dec 1.3e-04  triton 1.9e-04  |ref| 0.050  OK
+  ctx [1580]                   q [4]            HND     nsplit  64: pth_dec 1.3e-04  triton 1.9e-04  |ref| 0.050  OK
+  ctx [1580]                   q [4]            HND     nsplit 128: pth_dec 1.3e-04  triton 1.9e-04  |ref| 0.050  OK
+  ctx [131072]                 q [4]            HND     nsplit   1: pth_dec 2.0e-05  triton 1.8e-05  |ref| 0.008  OK
+  ctx [131072]                 q [4]            HND     nsplit   7: pth_dec 1.8e-05  triton 1.8e-05  |ref| 0.008  OK
+  ctx [131072]                 q [4]            HND     nsplit  64: pth_dec 1.8e-05  triton 1.8e-05  |ref| 0.008  OK
+  ctx [131072]                 q [4]            HND     nsplit 128: pth_dec 1.9e-05  triton 1.8e-05  |ref| 0.008  OK
+ALL OK
+speed: one layer, one rank (ms per call); Triton = server config (3D, 128 segments)
+  B=1 QL=4 ctx    4k: triton  0.242ms (0.83 TF)  ns32  0.143ms x 1.70  ns64  0.143ms x 1.69  ns128  0.143ms x 1.69
+  B=1 QL=4 ctx   16k: triton  0.751ms (1.07 TF)  ns32  0.385ms x 1.95  ns64  0.485ms x 1.55  ns128  0.456ms x 1.65
+  B=1 QL=4 ctx   32k: triton  1.518ms (1.06 TF)  ns32  0.688ms x 2.21  ns64  0.732ms x 2.08  ns128  0.767ms x 1.98
+  B=1 QL=4 ctx   64k: triton  2.905ms (1.11 TF)  ns32  1.334ms x 2.18  ns64  1.299ms x 2.24  ns128  1.246ms x 2.33
+  B=1 QL=4 ctx  128k: triton  5.723ms (1.13 TF)  ns32  3.458ms x 1.65  ns64  2.190ms x 2.61  ns128  2.405ms x 2.38
+  B=2 QL=4 ctx    4k: triton  0.448ms (0.90 TF)  ns32  0.280ms x 1.60  ns64  0.279ms x 1.60  ns128  0.278ms x 1.61
+  B=2 QL=4 ctx   16k: triton  1.533ms (1.05 TF)  ns32  0.811ms x 1.89  ns64  0.763ms x 2.01  ns128  0.809ms x 1.90
+  B=2 QL=4 ctx   32k: triton  2.961ms (1.09 TF)  ns32  1.411ms x 2.10  ns64  1.295ms x 2.29  ns128  1.375ms x 2.15
+  B=2 QL=4 ctx   64k: triton  5.691ms (1.13 TF)  ns32  2.618ms x 2.17  ns64  2.501ms x 2.28  ns128  2.437ms x 2.34
+  B=2 QL=4 ctx  128k: triton 11.682ms (1.10 TF)  ns32  5.801ms x 2.01  ns64  4.800ms x 2.43  ns128  5.066ms x 2.31
+  B=4 QL=4 ctx    4k: triton  0.985ms (0.82 TF)  ns32  0.479ms x 2.05  ns64  0.483ms x 2.04  ns128  0.500ms x 1.97
+  B=4 QL=4 ctx   16k: triton  3.304ms (0.98 TF)  ns32  1.676ms x 1.97  ns64  1.526ms x 2.16  ns128  1.674ms x 1.97
+  B=4 QL=4 ctx   32k: triton  6.378ms (1.01 TF)  ns32  3.024ms x 2.11  ns64  2.915ms x 2.19  ns128  2.948ms x 2.16
+  B=4 QL=4 ctx   64k: triton 12.709ms (1.01 TF)  ns32  5.660ms x 2.25  ns64  5.423ms x 2.34  ns128  5.451ms x 2.33
+  B=1 QL=1 ctx    4k: triton  0.239ms (0.21 TF)  ns32  0.077ms x 3.10  ns64  0.083ms x 2.87  ns128  0.086ms x 2.80
+  B=1 QL=1 ctx   16k: triton  0.424ms (0.48 TF)  ns32  0.247ms x 1.72  ns64  0.200ms x 2.11  ns128  0.202ms x 2.10
+  B=1 QL=1 ctx   32k: triton  0.877ms (0.46 TF)  ns32  0.395ms x 2.22  ns64  0.358ms x 2.45  ns128  0.330ms x 2.65
+  B=1 QL=1 ctx   64k: triton  1.734ms (0.46 TF)  ns32  0.728ms x 2.38  ns64  0.633ms x 2.74  ns128  0.586ms x 2.96
+  B=1 QL=1 ctx  128k: triton  3.501ms (0.46 TF)  ns32  1.469ms x 2.38  ns64  1.189ms x 2.94  ns128  1.085ms x 3.23
+  B=2 QL=1 ctx    4k: triton  0.264ms (0.38 TF)  ns32  0.107ms x 2.46  ns64  0.125ms x 2.11  ns128  0.119ms x 2.21
+  B=2 QL=1 ctx   16k: triton  0.869ms (0.46 TF)  ns32  0.351ms x 2.48  ns64  0.338ms x 2.57  ns128  0.370ms x 2.35
+  B=2 QL=1 ctx   32k: triton  1.733ms (0.46 TF)  ns32  0.657ms x 2.64  ns64  0.576ms x 3.01  ns128  0.640ms x 2.71
+  B=2 QL=1 ctx   64k: triton  3.383ms (0.48 TF)  ns32  1.184ms x 2.86  ns64  1.085ms x 3.12  ns128  1.210ms x 2.80
+  B=2 QL=1 ctx  128k: triton  6.619ms (0.49 TF)  ns32  2.263ms x 2.93  ns64  1.999ms x 3.31  ns128  2.142ms x 3.09

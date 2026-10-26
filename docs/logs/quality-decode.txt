@@ -1,0 +1,5 @@
+# bench/decqual.py compare dq-pp2.json dq-tri.json  (gfx906 decode kernel vs Triton decode; 2026-10-13)
+   3666 tok: 192/192 greedy tokens identical, mean |dlogprob| 0.0022, max 0.0266
+  15897 tok: 14/192 greedy tokens identical, mean |dlogprob| 0.0096, max 0.0505; diverge at step 14: ' file' vs ' in', top-2 gap 0.047 / 0.047
+# control: Triton vs Triton on the same 15.9k prompt served from the prefix cache
+  15897 tok: 192/192 greedy tokens identical, mean |dlogprob| 0.0008, max 0.0114

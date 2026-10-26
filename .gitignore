@@ -1,0 +1,5 @@
+kernels/build/
+kernels/*/build/
+__pycache__/
+*.so
+*.hip

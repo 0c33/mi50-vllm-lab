@@ -1,0 +1,321 @@
+--- a/csrc/gfx906_fa/gfx906_fa_launcher.cu
++++ b/csrc/gfx906_fa/gfx906_fa_launcher.cu
+@@ -331,10 +331,7 @@
+     int                nc2,
+     int                kv_split
+ ) {
+-    if      (head_dim == 128) return gfx906_fa_launch_impl<128>(Q_fp32, K_q8, V_f16, O_fp32, O_meta, KV_max_d, MASK_f16, mask_seq_kv_padded, Q_ABS_OFFSET_d, window, KV_START_d, tile_clip, batch, heads_q, heads_kv, seq_q, seq_kv, scale, stream, nc2, kv_split);
+-    else if (head_dim == 256) return gfx906_fa_launch_impl<256>(Q_fp32, K_q8, V_f16, O_fp32, O_meta, KV_max_d, MASK_f16, mask_seq_kv_padded, Q_ABS_OFFSET_d, window, KV_START_d, tile_clip, batch, heads_q, heads_kv, seq_q, seq_kv, scale, stream, nc2, kv_split);
+-    else if (head_dim == 96)  return gfx906_fa_launch_impl<96> (Q_fp32, K_q8, V_f16, O_fp32, O_meta, KV_max_d, MASK_f16, mask_seq_kv_padded, Q_ABS_OFFSET_d, window, KV_START_d, tile_clip, batch, heads_q, heads_kv, seq_q, seq_kv, scale, stream, nc2, kv_split);
+-    else if (head_dim == 64)  return gfx906_fa_launch_impl<64> (Q_fp32, K_q8, V_f16, O_fp32, O_meta, KV_max_d, MASK_f16, mask_seq_kv_padded, Q_ABS_OFFSET_d, window, KV_START_d, tile_clip, batch, heads_q, heads_kv, seq_q, seq_kv, scale, stream, nc2, kv_split);
++    if (head_dim == 256) return gfx906_fa_launch_impl<256>(Q_fp32, K_q8, V_f16, O_fp32, O_meta, KV_max_d, MASK_f16, mask_seq_kv_padded, Q_ABS_OFFSET_d, window, KV_START_d, tile_clip, batch, heads_q, heads_kv, seq_q, seq_kv, scale, stream, nc2, kv_split);
+     fprintf(stderr, "[gfx906_fa] Unsupported head_dim=%d (supported: 64, 96, 128, 256)\n", head_dim);
+     return hipErrorInvalidValue;
+ }
+@@ -449,7 +446,8 @@
+     int64_t            v_head_stride,
+     float              scale,
+     hipStream_t        stream,
+-    int                kv_split
++    int                kv_split,
++    int                pth
+ );
+ 
+ // ============================================================================
+@@ -491,12 +489,10 @@
+     int64_t            v_head_stride,
+     float              scale,
+     hipStream_t        stream,
+-    int                kv_split
++    int                kv_split,
++    int                pth
+ ) {
+-    if      (head_dim == 128) return gfx906_fa_launch_paged_impl<128>(Q_fp32, K_paged, V_paged, block_table, kv_max_d, O_fp32, O_meta, MASK_f16, mask_seq_kv_padded, Q_ABS_OFFSET_d, window, KV_START_d, tile_clip, batch, heads_q, heads_kv, seq_q, max_seq_kv, block_size, max_blocks_per_seq, k_block_stride, k_token_stride, k_head_stride, v_block_stride, v_token_stride, v_head_stride, scale, stream, kv_split);
+-    else if (head_dim == 256) return gfx906_fa_launch_paged_impl<256>(Q_fp32, K_paged, V_paged, block_table, kv_max_d, O_fp32, O_meta, MASK_f16, mask_seq_kv_padded, Q_ABS_OFFSET_d, window, KV_START_d, tile_clip, batch, heads_q, heads_kv, seq_q, max_seq_kv, block_size, max_blocks_per_seq, k_block_stride, k_token_stride, k_head_stride, v_block_stride, v_token_stride, v_head_stride, scale, stream, kv_split);
+-    else if (head_dim == 96)  return gfx906_fa_launch_paged_impl<96> (Q_fp32, K_paged, V_paged, block_table, kv_max_d, O_fp32, O_meta, MASK_f16, mask_seq_kv_padded, Q_ABS_OFFSET_d, window, KV_START_d, tile_clip, batch, heads_q, heads_kv, seq_q, max_seq_kv, block_size, max_blocks_per_seq, k_block_stride, k_token_stride, k_head_stride, v_block_stride, v_token_stride, v_head_stride, scale, stream, kv_split);
+-    else if (head_dim == 64)  return gfx906_fa_launch_paged_impl<64> (Q_fp32, K_paged, V_paged, block_table, kv_max_d, O_fp32, O_meta, MASK_f16, mask_seq_kv_padded, Q_ABS_OFFSET_d, window, KV_START_d, tile_clip, batch, heads_q, heads_kv, seq_q, max_seq_kv, block_size, max_blocks_per_seq, k_block_stride, k_token_stride, k_head_stride, v_block_stride, v_token_stride, v_head_stride, scale, stream, kv_split);
++    if (head_dim == 256) return gfx906_fa_launch_paged_impl<256>(Q_fp32, K_paged, V_paged, block_table, kv_max_d, O_fp32, O_meta, MASK_f16, mask_seq_kv_padded, Q_ABS_OFFSET_d, window, KV_START_d, tile_clip, batch, heads_q, heads_kv, seq_q, max_seq_kv, block_size, max_blocks_per_seq, k_block_stride, k_token_stride, k_head_stride, v_block_stride, v_token_stride, v_head_stride, scale, stream, kv_split, pth);
+     fprintf(stderr, "[gfx906_fa_paged] Unsupported head_dim=%d (supported: 64, 96, 128, 256)\n", head_dim);
+     return hipErrorInvalidValue;
+ }
+@@ -531,7 +527,8 @@
+     int64_t            v_head_stride,
+     float              scale,
+     hipStream_t        stream,
+-    int                kv_split
++    int                kv_split,
++    int                pth
+ ) {
+     if (heads_q % heads_kv != 0) {
+         fprintf(stderr, "[gfx906_fa_paged] heads_q=%d not divisible by heads_kv=%d\n",
+@@ -548,7 +545,7 @@
+     if (kv_split < 1) {
+         kv_split = 1;
+     }
+-    if (block_size != 16) {
++    if (block_size != 16 && !pth) {
+         fprintf(stderr, "[gfx906_fa_paged] Only block_size=16 supported, got %d\n", block_size);
+         return hipErrorInvalidValue;
+     }
+@@ -620,7 +617,8 @@
+                   nb31, nb32, nb33,
+             max_blocks_per_seq,
+             k_block_stride, k_token_stride, k_head_stride,
+-            v_block_stride, v_token_stride, v_head_stride
++            v_block_stride, v_token_stride, v_head_stride,
++            block_size, pth
+         );
+     };
+ 
+--- a/csrc/gfx906_fa/kernel/fattn-q8.cuh
++++ b/csrc/gfx906_fa/kernel/fattn-q8.cuh
+@@ -263,14 +263,22 @@
+     const int32_t * block_table_row; // block_table + sequence * max_blocks_per_seq
+     int64_t         block_stride;    // bytes per paged block (block_size * token_stride)
+     int64_t         token_stride;    // bytes per token (sum over all heads of per-head row)
++    int             block_size;      // tokens per paged block (16 = fast path)
++    int             pth;             // 1: vLLM int8 per-token-head row [D int8 | fp32 scale]
+ };
+ 
+ // block_size захардкожен в 16 (vLLM default, assert'ится в launcher).
+ // shift=4, mask=0xF. Upper path это делает vector ALU 1-op.
+ static __device__ __forceinline__ const uint8_t * paged_token_ptr_bs16(
+         const PagedCacheView & v, int global_token_idx) {
+-    const int logical_blk = global_token_idx >> 4;
+-    const int off_in_blk  = global_token_idx & 0xF;
++    int logical_blk, off_in_blk;
++    if (v.block_size == 16) {
++        logical_blk = global_token_idx >> 4;
++        off_in_blk  = global_token_idx & 0xF;
++    } else {
++        logical_blk = global_token_idx / v.block_size;
++        off_in_blk  = global_token_idx - logical_blk * v.block_size;
++    }
+     const int phys_blk    = v.block_table_row[logical_blk];
+     return v.head_base
+          + (int64_t) phys_blk    * v.block_stride
+@@ -316,8 +324,10 @@
+             dst2[2] = src2[2];
+             dst2[3] = src2[3];
+ 
+-            K_scales[col_block * I + row] = *reinterpret_cast<const half *>(
+-                tok_ptr + quants_bytes + (k_KQ_0_block + col_block) * 2);
++            K_scales[col_block * I + row] = paged_K.pth
++                ? __float2half(*reinterpret_cast<const float *>(tok_ptr + quants_bytes))
++                : *reinterpret_cast<const half *>(
++                      tok_ptr + quants_bytes + (k_KQ_0_block + col_block) * 2);
+         }
+ 
+         __syncthreads();
+@@ -362,6 +372,21 @@
+ 
+                     const half2 zero[cpy_ne] = {{0.0f, 0.0f}};
+                     const bool  in_range = !oob_check || i < i_sup;
++                    if (paged_V.pth && in_range) {
++                        // 2*cpy_ne int8 values at half index 2*j (rows are 4-byte aligned)
++                        const uint8_t * tok_ptr = paged_token_ptr_bs16(paged_V, k_VKQ_0 + i);
++                        const float     s       = *reinterpret_cast<const float *>(tok_ptr + J);
++                        const int     * qi      = reinterpret_cast<const int *>(tok_ptr + 2*j);
++                        half2 tmp[cpy_ne];
++#pragma unroll
++                        for (int w = 0; w < cpy_ne/2; ++w) {
++                            const int v4 = qi[w];
++                            tmp[2*w + 0] = __floats2half2_rn((float)(int8_t)(v4      ) * s, (float)(int8_t)(v4 >>  8) * s);
++                            tmp[2*w + 1] = __floats2half2_rn((float)(int8_t)(v4 >> 16) * s, (float)(int8_t)(v4 >> 24) * s);
++                        }
++                        ggml_cuda_memcpy_1<cpy_nb>(tile_KV + i*(J/2 + J_padding) + j, tmp);
++                        continue;
++                    }
+                     const half2 * src;
+                     if (in_range) {
+                         const uint8_t * tok_ptr = paged_token_ptr_bs16(paged_V, k_VKQ_0 + i);
+@@ -512,10 +537,12 @@
+                     acc_int = ggml_cuda_dp4a(K_hi.w, Q_hi.w, acc_int);
+                 }
+ 
+-                const half combined_scale_h = __hmul(
+-                    K_scales[block_id * nbatch_fa + i_KQ],
+-                    Q_scales[((k_KQ_0/32) + block_id) * ncols + jc]);
+-                KQ_acc[idx] += __half2float(combined_scale_h) * (float)acc_int;
++                // fp32 product: Q is pre-scaled by 1/sqrt(D), so K_scale*Q_scale is
++                // often below fp16's normal range (6.1e-5) and a half product
++                // loses up to a few % (gfx906 pth: 1.3e-2 -> see test_pth.py).
++                KQ_acc[idx] += __half2float(K_scales[block_id * nbatch_fa + i_KQ])
++                             * __half2float(Q_scales[((k_KQ_0/32) + block_id) * ncols + jc])
++                             * (float)acc_int;
+             }
+         }
+     }
+@@ -587,10 +614,12 @@
+                     acc_int = ggml_cuda_dp4a(K_hi.w, Q_hi.w, acc_int);
+                 }
+ 
+-                const half combined_scale_h = __hmul(
+-                    K_scales[block_id * nbatch_fa + i_KQ],
+-                    Q_scales[((k_KQ_0/32) + block_id) * ncols + jc]);
+-                KQ_acc[idx] += __half2float(combined_scale_h) * (float)acc_int;
++                // fp32 product: Q is pre-scaled by 1/sqrt(D), so K_scale*Q_scale is
++                // often below fp16's normal range (6.1e-5) and a half product
++                // loses up to a few % (gfx906 pth: 1.3e-2 -> see test_pth.py).
++                KQ_acc[idx] += __half2float(K_scales[block_id * nbatch_fa + i_KQ])
++                             * __half2float(Q_scales[((k_KQ_0/32) + block_id) * ncols + jc])
++                             * (float)acc_int;
+             }
+         }
+     }
+--- a/csrc/gfx906_fa/kernel/fattn-q8-paged.cuh
++++ b/csrc/gfx906_fa/kernel/fattn-q8-paged.cuh
+@@ -97,6 +97,15 @@
+     return (ggml_cuda_fattn_tile_q8_get_config_amd(DKQ, DV, ncols) >> 23) & ((1 << 9) - 1);
+ }
+ 
++// fp32 P.V accumulator (pth build): each KV tile is accumulated in fp16 (packed
++// FMAs) and flushed into fp32, so long contexts do not accumulate fp16 rounding.
++static __device__ __forceinline__ void fa_acc_scale(float2 & a, const float s) { a.x *= s; a.y *= s; }
++static __device__ __forceinline__ void fa_acc_add(float2 & a, const half2 b) {
++    const float2 f = __half22float2(b);
++    a.x += f.x;
++    a.y += f.y;
++}
++
+ // ----------------------------------------------------------------------------
+ // flash_attn_tile_q8_q8_iter_paged — параллельная копия flash_attn_tile_q8_q8_iter
+ // с заменой K_q8/V_h2 на PagedCacheView и вызовом _paged load функций.
+@@ -293,10 +302,9 @@
+ 
+                 KQ_sum[jc] = KQ_sum[jc]*KQ_max_scale + KQ_sum_add;
+ 
+-                const half2 KQ_max_scale_h2 = make_half2(KQ_max_scale, KQ_max_scale);
+ #pragma unroll
+                 for (int i0 = 0; i0 < DVp/2; i0 += warp_size) {
+-                    VKQ[jc*((DVp/2)/warp_size) + i0/warp_size] *= KQ_max_scale_h2;
++                    fa_acc_scale(VKQ[jc*((DVp/2)/warp_size) + i0/warp_size], KQ_max_scale);
+                 }
+             }
+ 
+@@ -326,10 +334,9 @@
+                 }
+                 KQ_sum[jc] = KQ_sum[jc]*KQ_max_scale + KQ_sum_add;
+ 
+-                const half2 KQ_max_scale_h2 = make_half2(KQ_max_scale, KQ_max_scale);
+ #pragma unroll
+                 for (int i0 = 0; i0 < DVp/2; i0 += warp_size) {
+-                    VKQ[jc*((DVp/2)/warp_size) + i0/warp_size] *= KQ_max_scale_h2;
++                    fa_acc_scale(VKQ[jc*((DVp/2)/warp_size) + i0/warp_size], KQ_max_scale);
+                 }
+             }
+ 
+@@ -354,6 +361,7 @@
+         __syncthreads();
+     }
+ 
++    half2 VKQ_t[cpw*((DVp/2)/warp_size)] = {{0.0f, 0.0f}};
+ #pragma unroll
+     for (int k0 = 0; k0 < nbatch_fa; k0 += nbatch_V) {
+         // Direct-paged V load: global token index = k_VKQ_0 + k0 + i (row).
+@@ -391,13 +399,17 @@
+                 const half2 v_val = V_k[i0/warp_size];
+ #pragma unroll
+                 for (int jc_VKQ_0 = 0; jc_VKQ_0 < cpw; ++jc_VKQ_0) {
+-                    VKQ[jc_VKQ_0*((DVp/2)/warp_size) + i0/warp_size] += v_val * KQ_k[jc_VKQ_0];
++                    VKQ_t[jc_VKQ_0*((DVp/2)/warp_size) + i0/warp_size] += v_val * KQ_k[jc_VKQ_0];
+                 }
+             }
+         }
+ 
+         __syncthreads();
+     }
++#pragma unroll
++    for (int i = 0; i < cpw*((DVp/2)/warp_size); ++i) {
++        fa_acc_add(VKQ[i], VKQ_t[i]);
++    }
+ }
+ 
+ // ----------------------------------------------------------------------------
+@@ -460,7 +472,8 @@
+         // paged-specific:
+         const int32_t max_blocks_per_seq,
+         const int64_t k_block_stride, const int64_t k_token_stride, const int64_t k_head_stride,
+-        const int64_t v_block_stride, const int64_t v_token_stride, const int64_t v_head_stride) {
++        const int64_t v_block_stride, const int64_t v_token_stride, const int64_t v_head_stride,
++        const int kv_block_size, const int kv_pth) {
+ #ifdef FLASH_ATTN_AVAILABLE
+ 
+     if (use_logit_softcap && !(DV == 128 || DV == 256)) {
+@@ -471,7 +484,7 @@
+             ne31, ne32, ne33, nb31, nb32, nb33,
+             max_blocks_per_seq,
+             k_block_stride, k_token_stride, k_head_stride,
+-            v_block_stride, v_token_stride, v_head_stride);
++            v_block_stride, v_token_stride, v_head_stride, kv_block_size, kv_pth);
+         NO_DEVICE_CODE;
+         return;
+     }
+@@ -509,12 +522,16 @@
+     paged_K.block_table_row = block_table + (int64_t) sequence * max_blocks_per_seq;
+     paged_K.block_stride    = k_block_stride;
+     paged_K.token_stride    = k_token_stride;
++    paged_K.block_size      = kv_block_size;
++    paged_K.pth             = kv_pth;
+ 
+     PagedCacheView paged_V;
+     paged_V.head_base       = (const uint8_t *) V_paged_base + (int64_t) head_kv_idx * v_head_stride;
+     paged_V.block_table_row = block_table + (int64_t) sequence * max_blocks_per_seq;
+     paged_V.block_stride    = v_block_stride;
+     paged_V.token_stride    = v_token_stride;
++    paged_V.block_size      = kv_block_size;
++    paged_V.pth             = kv_pth;
+ 
+     const half * maskh = mask ? (const half *) (mask + nb33*(sequence % ne33) + nb31*col_Q_0) : nullptr;
+ 
+@@ -545,7 +562,7 @@
+     __shared__ half2 KV_tmp[nbatch_fa * (nbatch_K/2 + cpy_ne) + DVp-DV];
+ 
+     __shared__ half  KQ[ncols * nbatch_fa];
+-    half2 VKQ[cpw * ((DVp/2)/warp_size)] = {{0.0f, 0.0f}};
++    float2 VKQ[cpw * ((DVp/2)/warp_size)] = {{0.0f, 0.0f}};
+ 
+     float KQ_max[cpw];
+ #pragma unroll
+@@ -665,7 +682,10 @@
+             constexpr int cpy_ne_D = cpy_ne < (DVp/2)/warp_size ? cpy_ne : (DVp/2)/warp_size;
+ #pragma unroll
+             for (int i0 = 0; i0 < DVp/2; i0 += warp_size*cpy_ne_D) {
+-                ggml_cuda_memcpy_1<cpy_ne_D*4>(&VKQ_combine[threadIdx.y*(DVp/2) + i0 + threadIdx.x*cpy_ne_D], &VKQ[i0/warp_size]);
++#pragma unroll
++                for (int i1 = 0; i1 < cpy_ne_D; ++i1) {
++                    VKQ_combine[threadIdx.y*(DVp/2) + i0 + threadIdx.x*cpy_ne_D + i1] = __float22half2_rn(VKQ[i0/warp_size + i1]);
++                }
+             }
+ 
+             if (threadIdx.x == 0) {
+@@ -686,7 +706,7 @@
+                 ggml_cuda_memcpy_1<cpy_ne_D*4>(tmp, &VKQ_combine[(threadIdx.y + ip)*(DVp/2) + i0 + threadIdx.x*cpy_ne_D]);
+ #pragma unroll
+                 for (int i1 = 0; i1 < cpy_ne_D; ++i1) {
+-                    VKQ[i0/warp_size + i1] += tmp[i1];
++                    fa_acc_add(VKQ[i0/warp_size + i1], tmp[i1]);
+                 }
+             }
+ 
+@@ -707,10 +727,9 @@
+             const float val = fast_exp_f32(sink - KQ_max[jc0]);
+             KQ_sum[jc0] = KQ_sum[jc0]*KQ_max_scale + val;
+ 
+-            const half2 KQ_max_scale_h2 = make_half2(KQ_max_scale, KQ_max_scale);
+ #pragma unroll
+             for (int i0 = 0; i0 < DVp/2; i0 += warp_size) {
+-                VKQ[jc0*((DVp/2)/warp_size) + i0/warp_size] *= KQ_max_scale_h2;
++                fa_acc_scale(VKQ[jc0*((DVp/2)/warp_size) + i0/warp_size], KQ_max_scale);
+             }
+         }
+     }
+@@ -741,7 +760,7 @@
+             float2 tmp[cpy_ne_D];
+ #pragma unroll
+             for (int i1 = 0; i1 < cpy_ne_D; ++i1) {
+-                tmp[i1] = __half22float2(VKQ[jc0*((DVp/2)/warp_size) + i0/warp_size + i1]);
++                tmp[i1] = VKQ[jc0*((DVp/2)/warp_size) + i0/warp_size + i1];
+                 tmp[i1].x *= scale_out;
+                 tmp[i1].y *= scale_out;
+             }

@@ -4,6 +4,13 @@ Copyright 2026 Sami (github.com/0c33)
 patches/vllm/ contains modifications to vLLM (https://github.com/vllm-project/vllm)
 as carried by KIntegrated/vllm-gfx906-mobydick, licensed under the Apache License 2.0.
 
+kernels/fa_pth/ contains files from the gfx906 FlashAttention kernel carried by
+KIntegrated/vllm-gfx906-mobydick (csrc/gfx906_fa, vendored from
+https://github.com/cassettesgoboom/gfx906-fa-vllm), licensed under the Apache License 2.0:
+Copyright (C) Nick (nick413@gmail.com); Copyright Kevin Read (me@kevin-read.com).
+gfx906_fa_launcher.cu, kernel/fattn-q8.cuh and kernel/fattn-q8-paged.cuh were modified
+(see kernels/fa_pth/fa_pth.patch); the other files are unchanged.
+
 docker/vllm.Dockerfile is derived from mixa3607/ML-gfx906 (vllm-v2/vllm.Dockerfile),
 licensed under the MIT License:
 

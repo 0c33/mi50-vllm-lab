@@ -15,6 +15,10 @@ SPEC_ARGS=""
 EXTRA_MOUNTS=()
 [ "${SKINNY:-1}" = 1 ] || EXTRA_MOUNTS+=(-e VLLM_GFX906_SKINNY8_LIB=)
 [ "${HOSTAR:-1}" = 1 ] || EXTRA_MOUNTS+=(-e VLLM_GFX906_HOSTAR_LIB=)
+# int8 per-token-head KV only: the gfx906 prefill (PTH_FA) and decode (PTH_DEC) attention
+# kernels; 0 keeps that path on vLLM's Triton kernel (A/B).
+[ "${PTH_FA:-1}" = 1 ] || EXTRA_MOUNTS+=(-e VLLM_GFX906_PTH_FA=0)
+[ "${PTH_DEC:-1}" = 1 ] || EXTRA_MOUNTS+=(-e VLLM_GFX906_PTH_DEC=0)
 
 exec docker run --rm --name vllm-qwen38 \
   --device=/dev/kfd --device=/dev/dri \

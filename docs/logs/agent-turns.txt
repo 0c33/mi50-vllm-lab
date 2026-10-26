@@ -1,0 +1,23 @@
+# bench/turnbench.py on the agent profile (2026-10-13), 16k-token conversation, 200-token replies, ~600-token tool outputs
+# A = block-level prefix cache (defaults), B = --prefix-match-unit 16, C = B + --enable-mamba-fine-grained-prefix-cache
+A turn 1: prompt  15900  cache hit       0  recomputed  15900  TTFT  64.38 s
+A turn 2: prompt  16611  cache hit   14256  recomputed   2355  TTFT  12.09 s
+A turn 3: prompt  17149  cache hit   14256  recomputed   2893  TTFT  14.46 s
+A turn 4: prompt  17149  cache hit   14256  recomputed   2893  TTFT  14.46 s
+B turn 1: prompt  15900  cache hit       0  recomputed  15900  TTFT  65.28 s
+B turn 2: prompt  16611  cache hit   15872  recomputed    739  TTFT   5.25 s
+B turn 3: prompt  17149  cache hit   16592  recomputed    557  TTFT   4.43 s
+B turn 4: prompt  17149  cache hit   17120  recomputed     29  TTFT   1.42 s
+C turn 1: prompt  15900  cache hit       0  recomputed  15900  TTFT  65.44 s
+C turn 2: prompt  16611  cache hit   15872  recomputed    739  TTFT   5.32 s
+C turn 3: prompt  17149  cache hit   16592  recomputed    557  TTFT   4.50 s
+C turn 4: prompt  17149  cache hit   17120  recomputed     29  TTFT   1.44 s
+turn replies identical A==B==C: True
+# --siblings: three requests sharing a ~10k-token prefix
+B sibling X: prompt   9946  cache hit       0  recomputed   9946  TTFT  38.11 s
+B sibling Y: prompt   9949  cache hit    7920  recomputed   2029  TTFT   9.43 s
+B sibling Z: prompt   9950  cache hit    7920  recomputed   2030  TTFT   9.50 s
+C sibling X: prompt   9946  cache hit       0  recomputed   9946  TTFT  38.07 s
+C sibling Y: prompt   9949  cache hit    7920  recomputed   2029  TTFT  10.40 s
+C sibling Z: prompt   9950  cache hit    9488  recomputed    462  TTFT   3.61 s
+sibling replies identical B==C: True

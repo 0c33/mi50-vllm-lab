@@ -1,0 +1,13 @@
+gfx906 unified attention, int8 per-token-head KV, rank shapes NQ=12 NKV=2 D=256, chunk 2048
+config              max err           ctx 0k          ctx 16k          ctx 64k         ctx 128k
+base m16 t16 w4     4.4e-05    20.2ms 1.28TF   344.1ms 1.27TF  1316.1ms 1.27TF  2621.4ms 1.27TF
+m32 t16 w4          4.4e-05    14.0ms 1.84TF   220.3ms 1.99TF   839.9ms 1.99TF  1669.3ms 1.99TF
+m32 t32 w4          4.4e-05    14.6ms 1.77TF   223.7ms 1.96TF   851.5ms 1.97TF  1693.8ms 1.96TF
+m64 t16 w4          4.4e-05    12.7ms 2.03TF   192.2ms 2.28TF   731.8ms 2.29TF  1451.4ms 2.29TF
+m64 t32 w4          4.4e-05    25.6ms 1.01TF   392.0ms 1.12TF  1503.6ms 1.11TF  3096.1ms 1.07TF
+m64 t32 w8          4.4e-05    22.2ms 1.16TF   350.6ms 1.25TF  1355.1ms 1.24TF  2858.7ms 1.16TF
+m64 t64 w8          4.4e-05    26.5ms 0.97TF   454.4ms 0.96TF  1746.6ms 0.96TF  3739.4ms 0.89TF
+m128 t16 w8         4.4e-05    24.2ms 1.07TF   431.8ms 1.01TF  1687.8ms 0.99TF  3457.5ms 0.96TF
+m128 t32 w8         4.4e-05    27.7ms 0.93TF   501.6ms 0.87TF  1944.4ms 0.86TF  4087.4ms 0.81TF
+m64 t32 w4 wpe2     4.4e-05    33.5ms 0.77TF   563.8ms 0.78TF  2230.2ms 0.75TF  4694.0ms 0.71TF
+m32 t64 w4          4.4e-05    43.5ms 0.59TF   754.3ms 0.58TF  2932.5ms 0.57TF  5854.7ms 0.57TF

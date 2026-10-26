@@ -1,0 +1,63 @@
+correctness vs float64 (max abs err; |ref| ~ 0.01-0.1)
+  ctx [0]                      q [1]            HND     nsplit   1: pth_dec 1.2e-03  triton 1.2e-03  |ref| 0.919  OK
+  ctx [0]                      q [1]            HND     nsplit   7: pth_dec 1.2e-03  triton 1.2e-03  |ref| 0.919  OK
+  ctx [0]                      q [1]            HND     nsplit  64: pth_dec 1.2e-03  triton 1.2e-03  |ref| 0.919  OK
+  ctx [0]                      q [1]            HND     nsplit 128: pth_dec 1.2e-03  triton 1.2e-03  |ref| 0.919  OK
+  ctx [5]                      q [4]            HND     nsplit   1: pth_dec 9.1e-04  triton 9.1e-04  |ref| 0.295  OK
+  ctx [5]                      q [4]            HND     nsplit   7: pth_dec 9.1e-04  triton 9.1e-04  |ref| 0.295  OK
+  ctx [5]                      q [4]            HND     nsplit  64: pth_dec 9.1e-04  triton 9.1e-04  |ref| 0.295  OK
+  ctx [5]                      q [4]            HND     nsplit 128: pth_dec 9.1e-04  triton 9.1e-04  |ref| 0.295  OK
+  ctx [255]                    q [1]            HND     nsplit   1: pth_dec 1.5e-04  triton 1.7e-04  |ref| 0.093  OK
+  ctx [255]                    q [1]            HND     nsplit   7: pth_dec 1.5e-04  triton 1.7e-04  |ref| 0.093  OK
+  ctx [255]                    q [1]            HND     nsplit  64: pth_dec 1.5e-04  triton 1.7e-04  |ref| 0.093  OK
+  ctx [255]                    q [1]            HND     nsplit 128: pth_dec 1.5e-04  triton 1.7e-04  |ref| 0.093  OK
+  ctx [252]                    q [4]            HND     nsplit   1: pth_dec 3.8e-04  triton 3.7e-04  |ref| 0.113  OK
+  ctx [252]                    q [4]            HND     nsplit   7: pth_dec 3.8e-04  triton 3.7e-04  |ref| 0.113  OK
+  ctx [252]                    q [4]            HND     nsplit  64: pth_dec 3.8e-04  triton 3.7e-04  |ref| 0.113  OK
+  ctx [252]                    q [4]            HND     nsplit 128: pth_dec 3.8e-04  triton 3.7e-04  |ref| 0.113  OK
+  ctx [1000]                   q [4]            NHD     nsplit   1: pth_dec 1.9e-04  triton 1.7e-04  |ref| 0.063  OK
+  ctx [1000]                   q [4]            NHD     nsplit   7: pth_dec 1.9e-04  triton 1.7e-04  |ref| 0.063  OK
+  ctx [1000]                   q [4]            NHD     nsplit  64: pth_dec 1.9e-04  triton 1.7e-04  |ref| 0.063  OK
+  ctx [1000]                   q [4]            NHD     nsplit 128: pth_dec 1.9e-04  triton 1.7e-04  |ref| 0.063  OK
+  ctx [3185]                   q [4]            HND qnc nsplit   1: pth_dec 7.5e-05  triton 7.5e-05  |ref| 0.033  OK
+  ctx [3185]                   q [4]            HND qnc nsplit   7: pth_dec 7.5e-05  triton 7.5e-05  |ref| 0.033  OK
+  ctx [3185]                   q [4]            HND qnc nsplit  64: pth_dec 7.5e-05  triton 7.5e-05  |ref| 0.033  OK
+  ctx [3185]                   q [4]            HND qnc nsplit 128: pth_dec 7.5e-05  triton 7.5e-05  |ref| 0.033  OK
+  ctx [20000]                  q [4]            HND     nsplit   1: pth_dec 4.4e-05  triton 4.4e-05  |ref| 0.015  OK
+  ctx [20000]                  q [4]            HND     nsplit   7: pth_dec 3.9e-05  triton 4.4e-05  |ref| 0.015  OK
+  ctx [20000]                  q [4]            HND     nsplit  64: pth_dec 3.0e-05  triton 4.4e-05  |ref| 0.015  OK
+  ctx [20000]                  q [4]            HND     nsplit 128: pth_dec 4.4e-05  triton 4.4e-05  |ref| 0.015  OK
+  ctx [20000, 300, 7]          q [4, 4, 4]      NHD     nsplit   1: pth_dec 9.0e-04  triton 9.0e-04  |ref| 0.189  OK
+  ctx [20000, 300, 7]          q [4, 4, 4]      NHD     nsplit   7: pth_dec 9.0e-04  triton 9.0e-04  |ref| 0.189  OK
+  ctx [20000, 300, 7]          q [4, 4, 4]      NHD     nsplit  64: pth_dec 9.0e-04  triton 9.0e-04  |ref| 0.189  OK
+  ctx [20000, 300, 7]          q [4, 4, 4]      NHD     nsplit 128: pth_dec 9.0e-04  triton 9.0e-04  |ref| 0.189  OK
+  ctx [5000, 70000]            q [1, 1]         HND     nsplit   1: pth_dec 6.0e-05  triton 6.0e-05  |ref| 0.018  OK
+  ctx [5000, 70000]            q [1, 1]         HND     nsplit   7: pth_dec 6.0e-05  triton 6.0e-05  |ref| 0.018  OK
+  ctx [5000, 70000]            q [1, 1]         HND     nsplit  64: pth_dec 6.0e-05  triton 6.0e-05  |ref| 0.018  OK
+  ctx [5000, 70000]            q [1, 1]         HND     nsplit 128: pth_dec 6.0e-05  triton 6.0e-05  |ref| 0.018  OK
+  ctx [3000, 9, 40000, 1]      q [4, 1, 3, 2]   HND qnc nsplit   1: pth_dec 1.3e-03  triton 1.3e-03  |ref| 0.194  OK
+  ctx [3000, 9, 40000, 1]      q [4, 1, 3, 2]   HND qnc nsplit   7: pth_dec 1.3e-03  triton 1.3e-03  |ref| 0.194  OK
+  ctx [3000, 9, 40000, 1]      q [4, 1, 3, 2]   HND qnc nsplit  64: pth_dec 1.3e-03  triton 1.3e-03  |ref| 0.194  OK
+  ctx [3000, 9, 40000, 1]      q [4, 1, 3, 2]   HND qnc nsplit 128: pth_dec 1.3e-03  triton 1.3e-03  |ref| 0.194  OK
+  ctx [4000, 0, 0]             q [4, 0, 0]      HND     nsplit   1: pth_dec 6.1e-05  triton 7.7e-05  |ref| 0.029  OK
+  ctx [4000, 0, 0]             q [4, 0, 0]      HND     nsplit   7: pth_dec 6.1e-05  triton 7.7e-05  |ref| 0.029  OK
+  ctx [4000, 0, 0]             q [4, 0, 0]      HND     nsplit  64: pth_dec 6.1e-05  triton 7.7e-05  |ref| 0.029  OK
+  ctx [4000, 0, 0]             q [4, 0, 0]      HND     nsplit 128: pth_dec 6.1e-05  triton 7.7e-05  |ref| 0.029  OK
+  ctx [1580]                   q [4]            HND     nsplit   1: pth_dec 1.3e-04  triton 1.9e-04  |ref| 0.050  OK
+  ctx [1580]                   q [4]            HND     nsplit   7: pth_dec 1.3e-04  triton 1.9e-04  |ref| 0.050  OK
+  ctx [1580]                   q [4]            HND     nsplit  64: pth_dec 1.3e-04  triton 1.9e-04  |ref| 0.050  OK
+  ctx [1580]                   q [4]            HND     nsplit 128: pth_dec 1.3e-04  triton 1.9e-04  |ref| 0.050  OK
+  ctx [131072]                 q [4]            HND     nsplit   1: pth_dec 2.0e-05  triton 1.8e-05  |ref| 0.008  OK
+  ctx [131072]                 q [4]            HND     nsplit   7: pth_dec 1.8e-05  triton 1.8e-05  |ref| 0.008  OK
+  ctx [131072]                 q [4]            HND     nsplit  64: pth_dec 1.8e-05  triton 1.8e-05  |ref| 0.008  OK
+  ctx [131072]                 q [4]            HND     nsplit 128: pth_dec 1.9e-05  triton 1.8e-05  |ref| 0.008  OK
+  ctx [510]                    q [4]            HND     nsplit   1: pth_dec 1.6e-04  triton 1.8e-04  |ref| 0.078  OK
+  ctx [510]                    q [4]            HND     nsplit   7: pth_dec 1.8e-04  triton 1.8e-04  |ref| 0.078  OK
+  ctx [510]                    q [4]            HND     nsplit  64: pth_dec 1.8e-04  triton 1.8e-04  |ref| 0.078  OK
+  ctx [510]                    q [4]            HND     nsplit 128: pth_dec 1.8e-04  triton 1.8e-04  |ref| 0.078  OK
+  ctx [1022, 3000]             q [4, 4]         NHD     nsplit   1: pth_dec 1.3e-04  triton 1.4e-04  |ref| 0.047  OK
+  ctx [1022, 3000]             q [4, 4]         NHD     nsplit   7: pth_dec 1.3e-04  triton 1.4e-04  |ref| 0.047  OK
+  ctx [1022, 3000]             q [4, 4]         NHD     nsplit  64: pth_dec 1.3e-04  triton 1.4e-04  |ref| 0.047  OK
+  ctx [1022, 3000]             q [4, 4]         NHD     nsplit 128: pth_dec 1.3e-04  triton 1.4e-04  |ref| 0.047  OK
+ALL OK
+18:19:08 END rc=0 peaks: card0.temp1=39 card0.temp2=46 card0.temp3=40 card1.temp1=39 card1.temp2=40 card1.temp3=39 

@@ -1,0 +1,14 @@
+correctness vs float64 (max abs err; outputs are O(0.1))
+  ctx      0 q    64 HND: triton 1.3e-03  fa_pth 1.3e-02  (|ref| 0.261)  OK
+  ctx      0 q  1500 HND: triton 1.5e-03  fa_pth 1.8e-02  (|ref| 0.087)  OK
+  ctx   1000 q   777 HND: triton 4.8e-04  fa_pth 6.5e-03  (|ref| 0.052)  OK
+  ctx   4747 q  2048 HND: triton 4.1e-04  fa_pth 5.1e-03  (|ref| 0.027)  OK
+  ctx   5000 q  2048 NHD: triton 3.1e-04  fa_pth 6.8e-03  (|ref| 0.026)  OK
+  ctx  20000 q    33 HND: triton 1.3e-04  fa_pth 2.5e-03  (|ref| 0.015)  OK
+  ctx  12345 q     5 HND: triton 4.6e-05  fa_pth 1.1e-03  (|ref| 0.018)  OK
+ALL OK
+speed, one 2048-token chunk on top of ctx cached tokens (one layer, one rank)
+  ctx    0k: triton     12.0 ms (2.14 TF)   fa_pth      7.2 ms (3.56 TF)   x1.66
+  ctx   16k: triton    189.6 ms (2.31 TF)   fa_pth     98.2 ms (4.46 TF)   x1.93
+  ctx   64k: triton    724.8 ms (2.31 TF)   fa_pth    376.2 ms (4.45 TF)   x1.93
+  ctx  128k: triton   1435.2 ms (2.32 TF)   fa_pth    747.4 ms (4.45 TF)   x1.92
